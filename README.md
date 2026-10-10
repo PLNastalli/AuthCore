@@ -2,286 +2,208 @@
 
 # AuthCore
 
-**A security-first, API-only authentication service built with Rust.**
+**A security-minded, API-only authentication backend written in Rust.**
 
-A self-hostable backend for identities, signed access tokens, refresh-token rotation, and OpenID Connect — designed to make authentication internals understandable, testable, and observable.
+A self-hosted authentication learning project exploring credential security, RSA-signed JWTs, refresh-token rotation, and revocable sessions.
 
-![Rust](https://img.shields.io/badge/Rust-backend-000000?logo=rust&logoColor=white)
-![Axum](https://img.shields.io/badge/HTTP-Axum-5B41B0)
-![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791?logo=postgresql&logoColor=white)
-![Redis](https://img.shields.io/badge/Infrastructure-Redis-DC382D?logo=redis&logoColor=white)
-![Project status](https://img.shields.io/badge/Status-Design%20phase-F59E0B)
+![Rust](https://img.shields.io/badge/Rust-Axum-black?logo=rust)
+![Postgres](https://img.shields.io/badge/PostgreSQL-SQLx-336791?logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-Rate%20Limiting-DC382D?logo=redis&logoColor=white)
+![Status](https://img.shields.io/badge/Status-Experimental-orange)
 
-**[Vision](#why-authcore) · [Architecture](#architecture) · [API](#api-design) · [Security](#security-model) · [Roadmap](#implementation-roadmap)**
+**[Get started](#getting-started) · [Features](#features) · [API](#api-reference) · [Security](#security-design) · [Roadmap](#roadmap)**
 
 </div>
 
-> [!IMPORTANT]
-> **Project status: design phase.** The repository currently contains this project specification, **not a working authentication server**. The APIs, guarantees, components, and commands described below are **design targets**, not implemented or security-audited features. Do not use AuthCore to secure a production application yet.
+> [!WARNING]
+> **Experimental, not production-ready.** This repository contains a working *implementation draft*. At the time of this documentation update, automated build and runtime verification have not been confirmed. Do not protect real accounts with this code until tests, review, and hardening are complete.
 
-## Why AuthCore?
+## Overview
 
-Authentication is much more than generating a JWT. Real systems must handle credential storage, concurrent token rotation, revocation, account recovery, external identity providers, rate limits, database failures, and security-sensitive logging.
+AuthCore is a backend-only portfolio project. Its purpose is to make complex authentication flows explicit and testable rather than hiding them behind a managed identity provider. There is no frontend or dashboard.
 
-**AuthCore** is a backend engineering portfolio project focused on building those capabilities explicitly — without a frontend, admin dashboard, or client framework.
+The initial source implementation includes registration, password login, JWT access tokens, opaque refresh tokens, database-backed sessions, and rate limiting. **Google OpenID Connect and password recovery are not implemented yet.** See the [roadmap](#roadmap).
 
-The goals are to:
+## Features
 
-- **Build secure foundations:** password hashing, token validation, replay detection, and session controls.
-- **Keep the design inspectable:** modular Rust services with clear boundaries between HTTP, application logic, domain rules, and infrastructure.
-- **Make behavior verifiable:** real PostgreSQL integration tests, concurrency tests, CI, and reproducible benchmarks.
-- **Stay API-first:** documented HTTP endpoints, OpenAPI schemas, and `curl` examples instead of a bundled UI.
-- **Be honest about readiness:** publish tested implementations incrementally and never call unfinished features production-ready.
-
-## Intended capabilities
-
-| Area | Planned capabilities |
+| Component | Implementation status |
 | --- | --- |
-| Credentials | Email/password registration, sign-in, Argon2id, password changes, account recovery |
-| Access tokens | Short-lived, asymmetrically signed JWTs with strict claim and algorithm validation |
-| Sessions | Per-device sessions, logout, global revocation, session inspection |
-| Refresh tokens | Opaque high-entropy tokens, hashed storage, one-time rotation, replay detection |
-| Federation | Google sign-in via OAuth 2.0 Authorization Code + PKCE and OpenID Connect |
-| Abuse prevention | Distributed rate limits, login-attempt controls, conservative failure behavior |
-| Persistence | PostgreSQL, SQLx migrations, constraints, indexes, and transactional updates |
-| Operations | Redis, structured tracing, health/readiness checks, Docker Compose, CI |
-| Documentation | Versioned REST API, OpenAPI, examples, and security design notes |
-
-All items above are **planned** until code and tests land.
-
-## Technology choices
-
-| Component | Technology | Reason |
-| --- | --- | --- |
-| Language | Rust | Explicit error handling, memory safety, predictable resource usage |
-| HTTP server | Axum + Tower | Composable handlers, middleware, and request extraction |
-| Async runtime | Tokio | Asynchronous I/O and concurrency primitives |
-| Data storage | PostgreSQL + SQLx | Transactions, integrity constraints, typed query support |
-| Distributed controls | Redis | Rate limiting and short-lived coordination/state |
-| Passwords | Argon2id | Memory-hard password hashing |
-| API contract | OpenAPI 3.x + utoipa | Discoverable, versioned HTTP interface |
-| Observability | tracing | Structured logs and request correlation |
-| Delivery | Docker Compose + GitHub Actions | Reproducible local services and automated verification |
-
-Dependency versions and implementation details will be pinned during the first working release.
+| Local registration and password login | Implemented in source; verification pending |
+| Argon2id password hashing | Implemented in source; verification pending |
+| RS256 JWT access tokens (15-minute lifetime) | Implemented in source; verification pending |
+| 30-day opaque refresh tokens (SHA-256 hashes in DB) | Implemented in source; verification pending |
+| Transactional refresh rotation and replay-triggered revocation | Implemented in source; verification pending |
+| PostgreSQL session inspection and revocation | Implemented in source; verification pending |
+| Change password and invalidate sessions | Implemented in source; verification pending |
+| Redis Lua rate limiting and fail-closed on Redis errors | Implemented in source; verification pending |
+| OpenAPI 3 spec at `/openapi.json` | Added; validation pending |
+| Docker Compose and GitHub Actions | Added; verification pending |
+| Google OAuth2 / OIDC + PKCE | Planned |
+| Email-based password recovery | Planned |
+| RSA signing-key rotation with multiple active `kid` values | Planned |
+| Independent security audit and load benchmarks | Planned |
 
 ## Architecture
 
-The target design keeps framework code at the edges and security policy in the application/domain layers.
-
 ```mermaid
 flowchart TB
-    Client["HTTP client / curl / service"] --> HTTP["Axum HTTP layer"]
-    HTTP --> APP["Application services"]
-    APP --> DOMAIN["Domain policies & models"]
-    APP --> REPO["SQLx repositories"]
-    APP --> CACHE["Rate-limit / state adapters"]
-    APP --> CRYPTO["Password & token services"]
-    APP --> OIDC["OIDC client"]
-    REPO --> PG[("PostgreSQL")]
-    CACHE --> REDIS[("Redis")]
-    OIDC --> GOOGLE["Google OIDC"]
+    HTTP["HTTP client / curl"] --> ROUTER["Axum routing"]
+    ROUTER --> AUTH["Authentication handlers"]
+    AUTH --> CRYPTO["Argon2id / RSA JWT / CSPRNG"]
+    AUTH --> PG[("PostgreSQL<br/>users / sessions / refresh tokens")]
+    AUTH --> LIMIT["Redis Lua rate limiter"]
+    LIMIT --> REDIS[("Redis")]
 ```
 
-### Proposed source layout
+The code is intentionally small and split by responsibility:
 
 ```text
-authcore/
-├── src/
-│   ├── main.rs                  # process startup
-│   ├── lib.rs                   # application composition
-│   ├── config/                  # validated runtime configuration
-│   ├── domain/                  # users, sessions, invariants
-│   ├── application/             # auth use cases
-│   ├── infrastructure/
-│   │   ├── database/            # SQLx persistence
-│   │   ├── redis/               # distributed controls
-│   │   ├── security/            # Argon2id, JWT, refresh tokens
-│   │   └── oauth/               # OIDC integration
-│   └── http/
-│       ├── routes/
-│       ├── handlers/
-│       ├── middleware/
-│       └── dto/
-├── migrations/                  # versioned PostgreSQL schema
-├── tests/                       # integration and adversarial tests
-├── benches/                     # reproducible load measurements
-├── docs/                        # threat model and design decisions
-├── .github/workflows/           # CI checks
-├── Dockerfile
-├── compose.yaml
-├── .env.example
-└── README.md
+src/
+  main.rs         # Startup and HTTP listener
+  lib.rs          # Router definition
+  state.rs        # App configuration, database and Redis clients, JWT keys
+  handlers.rs     # HTTP authentication endpoints and transactional session logic
+  security.rs     # Argon2id, JWTs, opaque refresh tokens, validation
+  limiter.rs      # Atomic rate limiting via Redis Lua
+  error.rs        # Sanitized API errors
+migrations/       # PostgreSQL schema
+openapi.json      # OpenAPI document
+scripts/          # Developer key generation
+.github/workflows # Format, clippy, tests, HTTP smoke test
+compose.yaml      # API + PostgreSQL + Redis
+Dockerfile        # Multistage Rust container build
 ```
-
-This structure is a **proposal**. Modules will be created only when the implementation needs them; unnecessary abstraction is explicitly out of scope.
-
-## API design
-
-Versioned endpoints are planned under `/api/v1`. Request/response schemas, status codes, and error formats will be specified in OpenAPI as features are implemented.
-
-| Method | Route | Purpose | Status |
-| --- | --- | --- | --- |
-| `POST` | `/api/v1/auth/register` | Create an account | Planned |
-| `POST` | `/api/v1/auth/login` | Authenticate with credentials | Planned |
-| `POST` | `/api/v1/auth/refresh` | Rotate session credentials | Planned |
-| `POST` | `/api/v1/auth/logout` | Revoke current session | Planned |
-| `POST` | `/api/v1/auth/logout-all` | Revoke all sessions | Planned |
-| `POST` | `/api/v1/auth/change-password` | Update password | Planned |
-| `POST` | `/api/v1/auth/forgot-password` | Initiate account recovery | Planned |
-| `POST` | `/api/v1/auth/reset-password` | Complete account recovery | Planned |
-| `GET` | `/api/v1/auth/me` | Inspect current identity | Planned |
-| `GET` | `/api/v1/auth/sessions` | List active sessions | Planned |
-| `DELETE` | `/api/v1/auth/sessions/{id}` | Revoke one session | Planned |
-| `GET` | `/api/v1/oauth/google/start` | Start OIDC authorization | Planned |
-| `GET` | `/api/v1/oauth/google/callback` | Handle OIDC callback | Planned |
-| `GET` | `/health` | Process liveness | Planned |
-| `GET` | `/ready` | Dependency readiness | Planned |
-| `GET` | `/openapi.json` | Machine-readable API schema | Planned |
-
-### Intended token lifecycle
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant A as AuthCore
-    participant P as PostgreSQL
-    C->>A: POST /auth/login
-    A->>P: Verify credentials and create session
-    P-->>A: Persisted session
-    A-->>C: Short-lived JWT + secure refresh cookie
-    Note over C,A: JWT sent as Authorization: Bearer
-    C->>A: POST /auth/refresh (cookie)
-    A->>P: Atomically consume and replace refresh token
-    P-->>A: Rotation committed
-    A-->>C: New JWT + rotated refresh cookie
-    Note over A,P: Reuse detection invalidates affected token family
-```
-
-The sequence above is a **design diagram**, not evidence of a running implementation.
-
-## Security model
-
-Authentication is security-critical software. The implementation will explicitly cover these invariants:
-
-**Passwords**
-- Hash with Argon2id using tuned, documented parameters.
-- Never store plaintext passwords or expose hashes via HTTP responses.
-- Return generic responses where account enumeration is a risk.
-
-**Access tokens**
-- Use asymmetric JWT signatures and explicit algorithm allowlists.
-- Validate signature, issuer, audience, expiry, token type, and key identifier.
-- Keep access tokens short-lived. Support key rotation and documented revocation semantics.
-
-**Refresh tokens and sessions**
-- Generate cryptographically random, opaque refresh tokens.
-- Store only token hashes; rotate on every accepted refresh.
-- Guarantee single use using database transactions/atomic state changes.
-- Detect replay and revoke the affected token family.
-- Use `HttpOnly`, `Secure`, appropriately scoped cookies and `SameSite` policy.
-- Enforce CSRF and Origin defenses wherever cookie authentication is relevant.
-
-**Federated identity**
-- Use Authorization Code + PKCE, `state`, `nonce`, and vetted OIDC libraries.
-- Validate provider-signed ID tokens against trusted JWKS, issuer, audience, and expiry.
-- Avoid unsafe automatic linking of accounts solely by matching an email address.
-
-**Operational controls**
-- Parameterized SQL, strict input validation, explicit CORS rules, request limits, and timeouts.
-- Distributed abuse protections that do not silently fail open.
-- Redact credentials, reset links, and tokens from logs and traces.
-- Do not roll your own cryptographic primitives.
-
-> [!CAUTION]
-> A correct README does not constitute a security audit. Before any production deployment, AuthCore will require completed tests, independent review, safe operational defaults, and a vulnerability-response process.
 
 ## Getting started
 
-**Not available yet.** There is currently no executable Rust application, `Cargo.toml`, Compose environment, or published container image in this repository.
+Requirements: **Docker + Docker Compose + OpenSSL** for the container path, or a current Rust toolchain plus PostgreSQL and Redis for native execution.
 
-The first runnable milestone will provide:
+### Docker Compose
 
-1. A Rust application that exposes `/health` and `/ready`.
-2. A sample environment configuration with placeholder values only.
-3. PostgreSQL and Redis services in Docker Compose.
-4. Database migrations, tests, and copy-paste local startup commands.
-5. The first fully documented authentication endpoint.
+```bash
+git clone https://github.com/PLNastalli/AuthCore.git
+cd AuthCore
+sh scripts/dev-keys.sh
+docker compose up --build
+```
 
-This section will be replaced with **verified** commands after the application bootstrap is merged. No commands are presented as working until tested.
+The example Compose stack binds the API to `127.0.0.1:3000`; PostgreSQL and Redis are private to the Compose network. The example credentials and signing keys are **development-only**.
 
-## Verification strategy
+> [!NOTE]
+> The commands above reflect the intended setup, but are not claimed to be validated until CI and an independent local run succeed. Do not expose the development Compose stack publicly.
 
-AuthCore will use automated checks as evidence of behavior, rather than badges or unverified performance claims.
+### Native Rust execution
 
-| Test class | Examples |
-| --- | --- |
-| Unit | Domain invariants, input validation, password rules |
-| Integration | PostgreSQL schema, transactions, Redis rate limits |
-| Auth security | Invalid/expired JWTs, logout, revocation, reset-token replay |
-| Concurrency | Simultaneous refresh requests must not mint two valid successors |
-| OIDC | Invalid `state`/`nonce`, JWKS changes, forged provider tokens |
-| Failure modes | Redis outage, database unavailability, timeouts, denied access |
-| Performance | Documented request profile, machine specs, throughput and p50/p95/p99 |
+First start your own PostgreSQL and Redis and generate local RSA keys:
 
-The CI pipeline is planned to run `cargo fmt`, `cargo clippy`, `cargo test`, and dependency security checks. **No passing CI status is claimed yet.**
+```bash
+cp .env.example .env
+sh scripts/dev-keys.sh
+cargo run
+```
 
-## Implementation roadmap
+On Windows use Git Bash or WSL to run the shell script, or create a 3072-bit RSA key pair with OpenSSL and place it at the paths referenced by `.env`.
 
-- [ ] **M1 — Foundation:** application bootstrap, config, routing, migrations, CI, health checks
-- [ ] **M2 — Credentials:** registration, Argon2id hashing, login, user profile
-- [ ] **M3 — Sessions:** JWT validation, opaque refresh tokens, atomic rotation, revocation
-- [ ] **M4 — Abuse protection:** Redis-backed limits, lockout controls, safe degradation
-- [ ] **M5 — Account recovery:** password reset and session invalidation
-- [ ] **M6 — Federation:** Google OIDC with PKCE and safe account linking
-- [ ] **M7 — Release readiness:** OpenAPI, Docker, reproducible benchmarks, security review
+The server runs SQLx migrations at startup. It refuses startup when PostgreSQL, Redis, or the configured key files are unavailable.
 
-Each milestone is complete only when its functionality is implemented, tested, and documented.
+## API reference
 
-## Non-goals
+The full machine-readable contract lives in [openapi.json](openapi.json).
 
-For the initial releases, AuthCore will **not** include:
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/api/v1/auth/register` | Register a local account |
+| `POST` | `/api/v1/auth/login` | Obtain JWT and refresh cookie |
+| `POST` | `/api/v1/auth/refresh` | Rotate refresh cookie and issue new JWT |
+| `GET` | `/api/v1/auth/me` | Get current account |
+| `POST` | `/api/v1/auth/logout` | Revoke the current session |
+| `POST` | `/api/v1/auth/logout-all` | Revoke all sessions |
+| `POST` | `/api/v1/auth/change-password` | Change password and invalidate sessions |
+| `GET` | `/api/v1/auth/sessions` | List active sessions (up to 100) |
+| `DELETE` | `/api/v1/auth/sessions/{id}` | Revoke one session |
+| `GET` | `/health` | Liveness |
+| `GET` | `/ready` | PostgreSQL and Redis readiness |
+| `GET` | `/openapi.json` | OpenAPI specification |
 
-- A frontend, admin dashboard, or bundled client application.
-- A homegrown OAuth/OIDC authorization server.
-- Unverified claims of certification, compliance, production readiness, or performance.
-- Extra layers or abstractions without an implementation need.
+**Sample flow** (requires the server to be running):
 
-## Engineering decisions to document
+```bash
+# Register
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"replace-with-a-strong-unique-password"}'
 
-As the project grows, design decisions will be recorded in `docs/`:
+# Login. Store the refresh cookie in a local file.
+curl -c cookies.txt -X POST http://localhost:3000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"replace-with-a-strong-unique-password"}'
 
-- Session consistency and refresh-token replay handling.
-- Redis vs PostgreSQL responsibilities and outage behavior.
-- JWT key rotation and the limits of stateless revocation.
-- OAuth account linking and callback security.
-- Operational tradeoffs and benchmark methodology.
+# Use the JWT from login response:
+curl http://localhost:3000/api/v1/auth/me \
+  -H "Authorization: Bearer ACCESS_TOKEN"
 
-## Contributing
+# Rotate refresh cookie; Origin is required for cookie-authenticated refresh.
+curl -b cookies.txt -c cookies.txt \
+  -H "Origin: http://localhost:3000" \
+  -X POST http://localhost:3000/api/v1/auth/refresh
+```
 
-The project is in its initial design stage. Feedback on the API contract, threat model, and architecture is welcome through GitHub issues.
+Access tokens are passed explicitly as `Authorization: Bearer`. Refresh tokens use a dedicated `HttpOnly` cookie. The service does **not** accept refresh tokens from request bodies or query strings.
 
-Once the first executable milestone lands, this section will include the contribution workflow, local setup, coding conventions, and test requirements.
+## Security design
 
-## References and inspiration
+- **Password storage:** Argon2id with a random salt; hashing and verification run off the async executor.
+- **Access credentials:** JWT signed with a locally configured RSA private key; expiration, issuer, audience, algorithm and token type checked on read.
+- **Session enforcement:** even a correctly signed JWT fails when its associated database session is revoked.
+- **Refresh rotation:** a PostgreSQL transaction locks the session before consuming the presented refresh-token hash and storing its replacement. Reuse of a consumed token revokes the session.
+- **Cookie policy:** `HttpOnly`, `SameSite=Strict`, `Path=/` and `Secure` in production; `__Host-` prefix when secure cookies are enabled. Development permits non-secure cookies **only on localhost**.
+- **CSRF protection:** the cookie-authenticated refresh operation requires an `Origin` matching configured `PUBLIC_ORIGIN`.
+- **Abuse prevention:** Redis Lua scripts atomically increment counters and apply TTLs. Requests are rejected when Redis is unavailable.
+- **No frontend:** the API supports direct HTTP clients; no client UI is provided.
 
-AuthCore is an independent educational/portfolio implementation. Its documentation structure and engineering emphasis are informed by mature open-source identity projects:
+### Known limitations
 
-- [Ory Kratos](https://github.com/ory/kratos) — headless identity infrastructure and developer guidance.
-- [Supabase Auth](https://github.com/supabase/auth) — authentication API, configuration, and operations.
-- [ZITADEL](https://github.com/zitadel/zitadel) — API-first identity platform and getting-started documentation.
-- [axum-login](https://github.com/maxcountryman/axum-login) — Rust/Axum authentication and authorization patterns.
+This is a portfolio project, not a replacement for an audited identity provider.
 
-AuthCore does not copy implementation code from these projects and does not claim equivalent features or assurance.
+- OAuth2/OpenID Connect login and secure account-recovery delivery are not present.
+- Key rotation and a multi-key JWKS publishing strategy are not present.
+- Email ownership is not yet verified.
+- IP-based rate limits use the direct socket peer, so deployment behind a reverse proxy requires a trusted-proxy policy.
+- Generic login errors are returned, but the missing-account path still needs work to reduce timing differences.
+- There is no established threat-model review, penetration test, security audit, benchmark report, or production operations manual.
+- The initial dependency versions are not yet captured in a committed `Cargo.lock`.
+
+Do **not** interpret an unchecked feature or an example shell command as proof of production readiness.
+
+## Development and tests
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
+
+GitHub Actions also has a PostgreSQL/Redis-backed HTTP smoke test for registration, login, `/me` and refresh rotation. See [the CI workflow](.github/workflows/ci.yml). Check the actual [Actions results](https://github.com/PLNastalli/AuthCore/actions); do not assume they are green.
+
+## Roadmap
+
+- [x] Implement initial HTTP routes, migrations, JWT and session code
+- [x] Add Redis rate-limit code, containers, OpenAPI and CI configuration
+- [ ] Confirm clean compilation and passing CI
+- [ ] Add realistic end-to-end/concurrent-refresh integration tests
+- [ ] Implement verified-email onboarding and password reset mail delivery
+- [ ] Implement Google OpenID Connect using Authorization Code + PKCE
+- [ ] Add versioned RSA key rotation, hardened deployment configuration and metrics
+- [ ] Conduct external security review and publish reproducible load benchmarks
+
+## Inspiration
+
+Documentation style and engineering direction were informed by [Ory Kratos](https://github.com/ory/kratos), [Supabase Auth](https://github.com/supabase/auth), [ZITADEL](https://github.com/zitadel/zitadel), and [axum-login](https://github.com/maxcountryman/axum-login). AuthCore is an independent project; their security assurances do not extend to this code.
 
 ## License
 
-**Not selected yet.** Public visibility alone does not grant an open-source software license. A `LICENSE` file will be added once the project's licensing decision is made.
+Not selected yet. A license will be added after an explicit choice. Public GitHub visibility is not a software license.
 
 ---
 
-<div align="center">
-
-**Built to learn the difficult parts of backend authentication — and prove them with tests.**
-
-</div>
+<div align="center"><sub>Backend engineering is proven by tested behavior, not claims.</sub></div>
