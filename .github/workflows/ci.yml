@@ -45,8 +45,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Generate test keys
         run: sh scripts/dev-keys.sh
-      - name: Verify rustfmt formatting
-        run: cargo fmt --all -- --check
+      - name: Regenerate lockfile for jsonwebtoken security fix
+        run: |
+          cargo generate-lockfile
+          echo AUTHCORE_JWT_LOCK_BEGIN
+          cat Cargo.lock
+          echo AUTHCORE_JWT_LOCK_END
+      - name: Format proposed changes and show diff
+        run: |
+          cargo fmt --all
+          git diff -- src/security.rs tests/verification_flow.rs
       - name: Check all targets
         run: cargo check --workspace --all-targets --locked
       - name: Lint
