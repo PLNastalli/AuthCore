@@ -28,5 +28,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install RustSec cargo-audit
         run: cargo install cargo-audit --locked
-      - name: Audit locked dependency graph
-        run: cargo audit
+      - name: Verify vulnerable optional MySQL crypto is NOT compiled
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo tree --locked --edges normal,build --target x86_64-unknown-linux-gnu --prefix none > /tmp/authcore-active-dependencies
+          if grep -Eq '^(rsa|sqlx-mysql) v' /tmp/authcore-active-dependencies; then
+            echo "Error: optional RSA/MySQL dependency became reachable in the build"
+            grep -E '^(rsa|sqlx-mysql) v' /tmp/authcore-active-dependencies
+            exit 1
+          fi
+      - name: Audit locked graph (reviewed optional-only exception)
+        run: cargo audit --ignore RUSTSEC-2023-0071

@@ -29,3 +29,11 @@ This is **experimental authentication software**, not an audited identity provid
 
 Do **not** disclose exploitable details in public issues.
 Contact the repository owner privately through GitHub before publishing a security finding.
+
+## RustSec exception: optional SQLx MySQL crypto
+
+`RUSTSEC-2023-0071` refers to the RustCrypto `rsa` crate. Cargo keeps it in the lockfile as an **optional, uncompiled** dependency of `sqlx-mysql`. AuthCore sets `sqlx.default-features=false` and explicitly uses PostgreSQL.
+
+Security CI checks the actual normal/build dependency tree before using a single, documented advisory exception. If RSA or MySQL becomes reachable, the workflow fails instead of masking the vulnerability.
+
+This is **not** a general vulnerability exemption and must be reviewed after dependency/feature changes.

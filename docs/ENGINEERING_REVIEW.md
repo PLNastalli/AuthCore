@@ -44,3 +44,14 @@ The separate Security workflow runs `cargo audit` on the committed `Cargo.lock` 
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 - [OWASP Email Validation and Verification](https://cheatsheetseries.owasp.org/cheatsheets/Email_Validation_and_Verification_Cheat_Sheet.html)
 - [OAuth 2.0 Security Best Current Practice — RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html)
+
+## Dependency advisory exception
+
+`cargo audit` examines `Cargo.lock`, which includes optional feature dependencies even when their code is **not compiled**. In this project, `sqlx-mysql` pulls in `rsa 0.9.10` and triggers `RUSTSEC-2023-0071`, but we use PostgreSQL only and explicitly set `sqlx.default-features = false`.
+
+The Security CI has a **fail-closed reachability gate**: it scans the actual normal/build dependency tree, failing if `sqlx-mysql` or `rsa` appears. Only after that proof does it invoke `cargo audit --ignore RUSTSEC-2023-0071`, so other RustSec vulnerabilities still fail the workflow.
+
+This exception is **not a claim that `rsa` is patched**. Revisit the exception whenever SQLx features, JWT libraries or dependency trees change. The referenced advisory has no patched RSA release as of October 2026.
+
+- [Cargo resolver documentation](https://doc.rust-lang.org/cargo/reference/resolver.html)
+- [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html)
