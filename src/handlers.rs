@@ -237,7 +237,7 @@ pub async fn refresh(
     let row: Option<LockedRefresh> = sqlx::query_as(
         "SELECT s.id, s.user_id, s.revoked_at, t.consumed_at, t.expires_at
              FROM refresh_tokens t JOIN sessions s ON s.id = t.session_id
-             WHERE t.token_hash = $1 FOR UPDATE OF s",
+             WHERE t.token_hash = $1 FOR UPDATE OF s, t",
     )
     .bind(token_hash)
     .fetch_optional(&mut *tx)
@@ -265,8 +265,8 @@ pub async fn refresh(
     if expires_at <= Utc::now() {
         return Err(ApiError::Unauthorized);
     }
-    sqlx::query("UPDATE refresh_tokens SET consumed_at = NOW() WHERE token_hash = $1")
-        .bind(security::hash_refresh(&presented))
+    sqlx::query("UPDATE refresh_tokens SET consumed_at = NOW() WHERE token_hash = $1 AND consumed_at IS NULL")
+        .bind(token_hash)
         .execute(&mut *tx)
         .await
         .map_err(database_error)?;

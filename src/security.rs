@@ -8,7 +8,7 @@ use argon2::{
 use axum::http::{header, HeaderMap};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
-use jsonwebtoken::{decode, encode, Algorithm, Header, Validation};
+use jsonwebtoken::{decode, decode_header, encode, Algorithm, Header, Validation};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -52,6 +52,11 @@ pub fn verify_access(state: &AppState, headers: &HeaderMap) -> Result<(Uuid, Uui
         .filter(|s| !s.is_empty())
         .ok_or(ApiError::Unauthorized)?;
 
+    // The configured key is the only accepted signing key until versioned key rotation lands.
+    let token_header = decode_header(raw).map_err(|_| ApiError::Unauthorized)?;
+    if token_header.alg != Algorithm::RS256 || token_header.kid.as_deref() != Some("primary") {
+        return Err(ApiError::Unauthorized);
+    }
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_issuer(&[state.jwt.issuer.as_str()]);
     validation.set_audience(&[state.jwt.audience.as_str()]);
