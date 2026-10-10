@@ -224,8 +224,8 @@ fn verify_google_signed_claims(
     validation.set_issuer(&["https://accounts.google.com", "accounts.google.com"]);
     validation.set_audience(&[client_id]);
     validation.required_spec_claims.insert("sub".to_string());
-    let token = decode::<GoogleClaims>(raw, key, &validation)
-        .map_err(|_| ApiError::Unauthorized)?;
+    let token =
+        decode::<GoogleClaims>(raw, key, &validation).map_err(|_| ApiError::Unauthorized)?;
     let claims = token.claims;
     if claims.nonce != expected_nonce
         || !claims.email_verified
@@ -394,7 +394,9 @@ mod tests {
         use std::fs;
 
         // CI generates these ephemeral keys; no fixtures or private keys are committed.
-        let Ok(private) = fs::read(".dev-keys/jwt-private.pem") else { return };
+        let Ok(private) = fs::read(".dev-keys/jwt-private.pem") else {
+            return;
+        };
         let public = fs::read(".dev-keys/jwt-public.pem").unwrap();
         let signing = EncodingKey::from_rsa_pem(&private).unwrap();
         let verifying = DecodingKey::from_rsa_pem(&public).unwrap();
@@ -411,29 +413,53 @@ mod tests {
             encode(&Header::new(Algorithm::RS256), claims, &signing).unwrap()
         };
         assert!(verify_google_signed_claims(
-            &make_token(&claims), &verifying, "test-google-client", "expected-nonce"
-        ).is_ok());
+            &make_token(&claims),
+            &verifying,
+            "test-google-client",
+            "expected-nonce"
+        )
+        .is_ok());
         assert!(verify_google_signed_claims(
-            &make_token(&claims), &verifying, "wrong-client", "expected-nonce"
-        ).is_err());
+            &make_token(&claims),
+            &verifying,
+            "wrong-client",
+            "expected-nonce"
+        )
+        .is_err());
         assert!(verify_google_signed_claims(
-            &make_token(&claims), &verifying, "test-google-client", "wrong-nonce"
-        ).is_err());
+            &make_token(&claims),
+            &verifying,
+            "test-google-client",
+            "wrong-nonce"
+        )
+        .is_err());
         let mut invalid = claims.clone();
         invalid.email_verified = false;
         assert!(verify_google_signed_claims(
-            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
-        ).is_err());
+            &make_token(&invalid),
+            &verifying,
+            "test-google-client",
+            "expected-nonce"
+        )
+        .is_err());
         invalid = claims.clone();
         invalid.iss = "https://attacker.invalid".into();
         assert!(verify_google_signed_claims(
-            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
-        ).is_err());
+            &make_token(&invalid),
+            &verifying,
+            "test-google-client",
+            "expected-nonce"
+        )
+        .is_err());
         invalid = claims.clone();
         invalid.exp = (Utc::now().timestamp() - 600) as usize;
         assert!(verify_google_signed_claims(
-            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
-        ).is_err());
+            &make_token(&invalid),
+            &verifying,
+            "test-google-client",
+            "expected-nonce"
+        )
+        .is_err());
     }
 
     #[test]
