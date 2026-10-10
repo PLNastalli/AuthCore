@@ -4,7 +4,10 @@ pub mod limiter;
 pub mod security;
 pub mod state;
 
-use axum::{routing::{delete, get, post}, Router};
+use axum::{
+    routing::{delete, get, post},
+    Router,
+};
 use state::AppState;
 use tower_http::{limit::RequestBodyLimitLayer, trace::TraceLayer};
 
@@ -18,10 +21,16 @@ pub fn app(state: AppState) -> Router {
         .route("/api/v1/auth/refresh", post(handlers::refresh))
         .route("/api/v1/auth/logout", post(handlers::logout))
         .route("/api/v1/auth/logout-all", post(handlers::logout_all))
-        .route("/api/v1/auth/change-password", post(handlers::change_password))
+        .route(
+            "/api/v1/auth/change-password",
+            post(handlers::change_password),
+        )
         .route("/api/v1/auth/me", get(handlers::me))
         .route("/api/v1/auth/sessions", get(handlers::sessions))
-        .route("/api/v1/auth/sessions/{id}", delete(handlers::revoke_session))
+        .route(
+            "/api/v1/auth/sessions/{id}",
+            delete(handlers::revoke_session),
+        )
         .layer(RequestBodyLimitLayer::new(16 * 1024))
         .layer(TraceLayer::new_for_http())
         .with_state(state)

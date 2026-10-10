@@ -1,5 +1,10 @@
 use crate::{error::ApiError, state::AppState};
-use argon2::{password_hash::{rand_core::OsRng as SaltOsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
+use argon2::{
+    password_hash::{
+        rand_core::OsRng as SaltOsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString,
+    },
+    Argon2,
+};
 use axum::http::{header, HeaderMap};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
@@ -40,7 +45,8 @@ pub fn issue_access(state: &AppState, user_id: Uuid, session_id: Uuid) -> Result
 }
 
 pub fn verify_access(state: &AppState, headers: &HeaderMap) -> Result<(Uuid, Uuid), ApiError> {
-    let raw = headers.get(header::AUTHORIZATION)
+    let raw = headers
+        .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .filter(|s| !s.is_empty())
@@ -63,17 +69,24 @@ pub fn verify_access(state: &AppState, headers: &HeaderMap) -> Result<(Uuid, Uui
 pub async fn hash_password(password: String) -> Result<String, ApiError> {
     tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut SaltOsRng);
-        Argon2::default().hash_password(password.as_bytes(), &salt)
+        Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
             .map(|hash| hash.to_string())
             .map_err(|_| ApiError::Internal)
-    }).await.map_err(|_| ApiError::Internal)?
+    })
+    .await
+    .map_err(|_| ApiError::Internal)?
 }
 
 pub async fn check_password(password: String, encoded: String) -> Result<bool, ApiError> {
     tokio::task::spawn_blocking(move || {
         let parsed = PasswordHash::new(&encoded).map_err(|_| ApiError::Internal)?;
-        Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
-    }).await.map_err(|_| ApiError::Internal)?
+        Ok(Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok())
+    })
+    .await
+    .map_err(|_| ApiError::Internal)?
 }
 
 pub fn generate_refresh() -> (String, String) {
@@ -90,16 +103,25 @@ pub fn hash_refresh(token: &str) -> String {
 }
 
 pub fn refresh_cookie(state: &AppState, headers: &HeaderMap) -> Result<String, ApiError> {
-    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).ok_or(ApiError::Unauthorized)?;
-    cookie.split(';')
+    let cookie = headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .ok_or(ApiError::Unauthorized)?;
+    cookie
+        .split(';')
         .map(str::trim)
-        .find_map(|entry| entry.strip_prefix(&format!("{}=", state.cookie_name())).map(str::to_owned))
+        .find_map(|entry| {
+            entry
+                .strip_prefix(&format!("{}=", state.cookie_name()))
+                .map(str::to_owned)
+        })
         .filter(|s| !s.is_empty() && s.len() <= 128)
         .ok_or(ApiError::Unauthorized)
 }
 
 pub fn validate_origin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    let origin = headers.get(header::ORIGIN)
+    let origin = headers
+        .get(header::ORIGIN)
         .and_then(|h| h.to_str().ok())
         .ok_or(ApiError::Forbidden)?;
     if origin != state.public_origin {
@@ -129,7 +151,10 @@ mod tests {
     use super::*;
     #[test]
     fn validates_email() {
-        assert_eq!(valid_email(" Test@Example.com "), Some("test@example.com".into()));
+        assert_eq!(
+            valid_email(" Test@Example.com "),
+            Some("test@example.com".into())
+        );
         assert_eq!(valid_email("not-an-email"), None);
         assert_eq!(valid_email(" a @example.com"), None);
     }
@@ -148,8 +173,14 @@ mod tests {
     }
     #[tokio::test]
     async fn password_roundtrip() {
-        let hash = hash_password("correct horse battery staple".into()).await.unwrap();
-        assert!(check_password("correct horse battery staple".into(), hash.clone()).await.unwrap());
+        let hash = hash_password("correct horse battery staple".into())
+            .await
+            .unwrap();
+        assert!(
+            check_password("correct horse battery staple".into(), hash.clone())
+                .await
+                .unwrap()
+        );
         assert!(!check_password("wrong-password".into(), hash).await.unwrap());
     }
 }
