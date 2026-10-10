@@ -26,25 +26,31 @@ AuthCore is a backend-only portfolio project. Its purpose is to make complex aut
 
 The initial source implementation includes registration, password login, JWT access tokens, opaque refresh tokens, database-backed sessions, and rate limiting. Google OpenID Connect and single-use password reset code have also been added, but **the external Google and Resend provider flows have not been verified with real credentials**. See the [roadmap](#roadmap).
 
+## Verification evidence
+
+- [Rust CI](https://github.com/PLNastalli/AuthCore/actions/workflows/ci.yml) checks formatting, compilation, Clippy, Rust tests with PostgreSQL and Redis, release builds, Docker and HTTP smoke tests.
+- [Dependency Security](https://github.com/PLNastalli/AuthCore/actions/workflows/security.yml) scans the locked dependency graph. One documented advisory for an *uncompiled optional* dependency is conditionally excepted after the workflow verifies it is unreachable in the build.
+- [GitHub Security](https://github.com/PLNastalli/AuthCore/security) is the source of truth for current Dependabot, Code Scanning, and Secret Scanning alerts. A passing workflow **does not guarantee zero alerts**.
+
 ## Features
 
 | Component | Implementation status |
 | --- | --- |
-| Local registration, email verification and password login | Implemented; CI covers database flow |
-| Argon2id password hashing | Implemented in source; verification pending |
-| RS256 JWT access tokens (15-minute lifetime) | Implemented in source; verification pending |
-| 30-day opaque refresh tokens (SHA-256 hashes in DB) | Implemented in source; verification pending |
-| Transactional refresh rotation and replay-triggered revocation | Implemented in source; verification pending |
-| PostgreSQL session inspection and revocation | Implemented in source; verification pending |
-| Change password and invalidate sessions | Implemented in source; verification pending |
-| Redis Lua rate limiting and fail-closed on Redis errors | Implemented in source; verification pending |
-| OpenAPI 3 spec at `/openapi.json` | Added; validation pending |
-| Docker Compose and GitHub Actions | Added; verification pending |
-| Email verification with single-use tokens and resend | Implemented; live Resend delivery unverified |
-| Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented in source; external provider testing pending |
-| One-time password reset, optional Resend delivery | Implemented in source; external delivery testing pending |
-| RSA signing-key rotation with multiple active `kid` values | Planned |
-| Independent security audit and load benchmarks | Planned |
+| Local registration, email verification and password login | **Tested with PostgreSQL + Redis**; live mail delivery pending |
+| Argon2id password hashing | **Unit-tested**; concurrency bounded by a semaphore |
+| RS256 JWT access tokens (15-minute lifetime) | **Tested via login and protected endpoints**; external review pending |
+| 30-day opaque refresh tokens (SHA-256 hashes in DB) | **Integration-tested** |
+| Transactional refresh rotation and replay-triggered revocation | **Integration and concurrent-race tests passed** |
+| PostgreSQL session inspection and revocation | Implemented; broader dedicated endpoint coverage pending |
+| Change password and invalidate sessions | **Integration-tested**, including competing updates |
+| Redis Lua rate limiting and fail-closed on Redis errors | Implemented; Redis used in CI; outage tests pending |
+| OpenAPI 3 spec at `/openapi.json` | Published; comprehensive schema validation pending |
+| Docker Compose and GitHub Actions | **CI verified**, including release build and container build |
+| Email verification with single-use tokens and resend | **Database flow tested**; live Resend delivery unverified |
+| Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented; external Google provider tests pending |
+| One-time password reset, optional Resend delivery | **Token lifecycle tested**; live email delivery pending |
+| RSA signing-key rotation with multiple active `kid` values | Not implemented |
+| Independent security audit and load benchmarks | Not performed |
 
 ## Architecture
 
