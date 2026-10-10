@@ -11,17 +11,26 @@ fn openapi_covers_all_router_endpoints_and_references_are_valid() {
         let Some(path) = route.split('"').nth(1) else {
             panic!("route missing a literal path");
         };
-        assert!(paths.contains_key(path), "router path missing from OpenAPI: {path}");
+        assert!(
+            paths.contains_key(path),
+            "router path missing from OpenAPI: {path}"
+        );
         counted += 1;
     }
     assert!(counted >= 16, "unexpectedly incomplete public router");
-    assert_eq!(counted, paths.len(), "OpenAPI contains stale or invented routes");
+    assert_eq!(
+        counted,
+        paths.len(),
+        "OpenAPI contains stale or invented routes"
+    );
 
     for (path, methods) in paths {
         let methods = methods.as_object().expect("path methods object");
         for (method, definition) in methods {
             assert!(
-                definition["responses"].as_object().is_some_and(|r| !r.is_empty()),
+                definition["responses"]
+                    .as_object()
+                    .is_some_and(|r| !r.is_empty()),
                 "endpoint {method} {path} has no response contract"
             );
         }
@@ -34,7 +43,10 @@ fn openapi_covers_all_router_endpoints_and_references_are_valid() {
                     if key == "$ref" {
                         let reference = child.as_str().expect("reference is a string");
                         let pointer = reference.strip_prefix('#').expect("local schema reference");
-                        assert!(document.pointer(pointer).is_some(), "broken reference: {reference}");
+                        assert!(
+                            document.pointer(pointer).is_some(),
+                            "broken reference: {reference}"
+                        );
                     } else {
                         validate_references(child, document);
                     }
