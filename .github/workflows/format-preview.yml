@@ -1,0 +1,17 @@
+name: Temporary formatting preview
+on:
+  push:
+permissions:
+  contents: read
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format and show patch
+        run: |
+          cargo fmt --all
+          git diff -- src tests
