@@ -406,17 +406,26 @@ pub async fn change_password(
             .fetch_one(&state.db)
             .await
             .map_err(database_error)?;
-    if !state.passwords.verify(body.current_password, user.password_hash).await? {
+    let previous_hash = user.password_hash;
+    if !state.passwords.verify(body.current_password, previous_hash.clone()).await? {
         return Err(ApiError::Unauthorized);
     }
     let next_hash = state.passwords.hash(body.new_password).await?;
     let mut tx = state.db.begin().await.map_err(database_error)?;
-    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+    // An in-flight password change or recovery may replace the credential
+    // after we verified it. Compare-and-swap prevents stale updates.
+    let updated = sqlx::query(
+        "UPDATE users SET password_hash = $1 WHERE id = $2 AND password_hash = $3"
+    )
         .bind(next_hash)
         .bind(user_id)
+        .bind(previous_hash)
         .execute(&mut *tx)
         .await
         .map_err(database_error)?;
+    if updated.rows_affected() == 0 {
+        return Err(ApiError::Unauthorized);
+    }
     sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
         .bind(user_id)
         .execute(&mut *tx)
