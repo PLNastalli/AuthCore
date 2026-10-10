@@ -49,33 +49,17 @@ impl AppState {
             .unwrap_or_else(|_| "true".to_string())
             .parse::<bool>()?;
 
-        if !cookie_secure
-            && !public_origin.starts_with("http://localhost:")
-            && !public_origin.starts_with("http://127.0.0.1:")
-        {
-            return Err("insecure refresh cookies are only permitted on localhost".into());
-        }
-        if !public_origin.starts_with("https://")
-            && cookie_secure
-            && !public_origin.starts_with("http://localhost:")
-            && !public_origin.starts_with("http://127.0.0.1:")
-        {
-            return Err("production PUBLIC_ORIGIN must use HTTPS".into());
-        }
-        let local_origin = public_origin.starts_with("http://localhost:")
-            || public_origin.starts_with("http://127.0.0.1:");
         let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
-        let loopback_bind = bind_addr.starts_with("127.0.0.1:") || bind_addr.starts_with("[::1]:");
         let dev_skip_email_verification = matches!(
             env::var("AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION").as_deref(),
             Ok("true")
         );
-        if dev_skip_email_verification && !(cfg!(debug_assertions) && local_origin && loopback_bind)
-        {
-            return Err(
-                "email-verification bypass is restricted to debug builds bound to loopback".into(),
-            );
-        }
+        validate_http_security_config(
+            &public_origin,
+            cookie_secure,
+            &bind_addr,
+            dev_skip_email_verification,
+        )?;
         let google = match (
             env::var("GOOGLE_CLIENT_ID").ok().filter(|v| !v.is_empty()),
             env::var("GOOGLE_CLIENT_SECRET")
@@ -181,5 +165,77 @@ impl AppState {
                 if self.cookie_secure { "; Secure" } else { "" }
             ),
         }
+    }
+}
+
+
+/// Validates canonical public origins rather than trusting textual prefixes.
+/// Origin validation is security-sensitive because it governs cookies, OAuth and CSRF.
+fn validate_http_security_config(
+    origin: &str,
+    cookie_secure: bool,
+    bind_addr: &str,
+    skip_verification: bool,
+) -> Result<(), &'static str> {
+    let url = reqwest::Url::parse(origin).map_err(|_| "invalid PUBLIC_ORIGIN URL")?;
+    if url.origin().ascii_serialization() != origin
+        || url.path() != "/"
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("PUBLIC_ORIGIN must be a canonical origin without path, credentials or query");
+    }
+    let local_http = url.scheme() == "http"
+        && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if !local_http && url.scheme() != "https" {
+        return Err("non-local PUBLIC_ORIGIN must use HTTPS");
+    }
+    if !cookie_secure && !local_http {
+        return Err("insecure cookies are permitted only for localhost HTTP");
+    }
+    if skip_verification {
+        let socket: std::net::SocketAddr = bind_addr
+            .parse()
+            .map_err(|_| "invalid BIND_ADDR for development bypass")?;
+        if !cfg!(debug_assertions) || !local_http || !socket.ip().is_loopback() {
+            return Err("email verification bypass requires a loopback-bound debug build");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod config_security_tests {
+    use super::validate_http_security_config as validate;
+
+    #[test]
+    fn accepts_local_dev_origin_and_secure_production_origin() {
+        assert!(validate("http://localhost:3000", false, "127.0.0.1:3000", false).is_ok());
+        assert!(validate("http://127.0.0.1:3000", false, "127.0.0.1:3000", false).is_ok());
+        assert!(validate("https://auth.example.com", true, "0.0.0.0:3000", false).is_ok());
+    }
+
+    #[test]
+    fn rejects_prefix_impersonation_and_unsafe_origins() {
+        for origin in [
+            "http://localhost:3000.attacker.example",
+            "http://localhost:3000@attacker.example",
+            "https://auth.example.com/evil",
+            "https://auth.example.com?token=foo",
+            "https://auth.example.com/#fragment",
+            "https://user:secret@auth.example.com",
+            "http://auth.example.com",
+        ] {
+            assert!(validate(origin, false, "127.0.0.1:3000", false).is_err(), "{origin}");
+        }
+        assert!(validate("https://auth.example.com", false, "127.0.0.1:3000", false).is_err());
+    }
+
+    #[test]
+    fn development_bypass_cannot_bind_public_interface() {
+        assert!(validate("http://localhost:3000", false, "0.0.0.0:3000", true).is_err());
+        assert!(validate("http://localhost:3000", false, "not-an-address", true).is_err());
     }
 }
