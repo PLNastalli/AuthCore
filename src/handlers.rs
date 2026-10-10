@@ -162,12 +162,12 @@ pub async fn register(
         "INSERT INTO users (id, email, password_hash, email_verified_at)
          VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)",
     )
-        .bind(user_id)
-        .bind(&email)
-        .bind(hash)
-        .bind(state.dev_skip_email_verification)
-        .execute(&state.db)
-        .await;
+    .bind(user_id)
+    .bind(&email)
+    .bind(hash)
+    .bind(state.dev_skip_email_verification)
+    .execute(&state.db)
+    .await;
     match result {
         Ok(_) => {}
         Err(sqlx::Error::Database(db)) if db.code().as_deref() == Some("23505") => {
@@ -175,12 +175,13 @@ pub async fn register(
         }
         Err(err) => return Err(database_error(err)),
     }
-    let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(database_error)?;
+    let user: User = sqlx::query_as(
+        "SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(database_error)?;
     if !state.dev_skip_email_verification {
         crate::verification::send(&state, user_id, &email).await?;
     }
@@ -203,7 +204,9 @@ pub async fn login(
             .map_err(database_error)?;
     // Always perform Argon2 verification for a syntactically valid login.
     // A stable dummy hash mitigates immediate user-enumeration timing differences.
-    let selected_hash = user.as_ref().map(|account| account.password_hash.clone())
+    let selected_hash = user
+        .as_ref()
+        .map(|account| account.password_hash.clone())
         .unwrap_or_else(|| state.dummy_password_hash.as_ref().clone());
     let matches = state.passwords.verify(body.password, selected_hash).await?;
     let user = user.ok_or(ApiError::Unauthorized)?;
@@ -316,12 +319,13 @@ pub async fn me(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ApiError> {
     let (user_id, _) = active_user(&state, &headers).await?;
-    let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(database_error)?;
+    let user: User = sqlx::query_as(
+        "SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(database_error)?;
     Ok(Json(UserView::from(user)))
 }
 
@@ -400,29 +404,33 @@ pub async fn change_password(
     if !security::valid_password(&body.new_password) {
         return Err(ApiError::Invalid("password_must_be_12_to_1024_bytes"));
     }
-    let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id=$1")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(database_error)?;
+    let user: User = sqlx::query_as(
+        "SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id=$1",
+    )
+    .bind(user_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(database_error)?;
     let previous_hash = user.password_hash;
-    if !state.passwords.verify(body.current_password, previous_hash.clone()).await? {
+    if !state
+        .passwords
+        .verify(body.current_password, previous_hash.clone())
+        .await?
+    {
         return Err(ApiError::Unauthorized);
     }
     let next_hash = state.passwords.hash(body.new_password).await?;
     let mut tx = state.db.begin().await.map_err(database_error)?;
     // An in-flight password change or recovery may replace the credential
     // after we verified it. Compare-and-swap prevents stale updates.
-    let updated = sqlx::query(
-        "UPDATE users SET password_hash = $1 WHERE id = $2 AND password_hash = $3"
-    )
-        .bind(next_hash)
-        .bind(user_id)
-        .bind(previous_hash)
-        .execute(&mut *tx)
-        .await
-        .map_err(database_error)?;
+    let updated =
+        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2 AND password_hash = $3")
+            .bind(next_hash)
+            .bind(user_id)
+            .bind(previous_hash)
+            .execute(&mut *tx)
+            .await
+            .map_err(database_error)?;
     if updated.rows_affected() == 0 {
         return Err(ApiError::Unauthorized);
     }

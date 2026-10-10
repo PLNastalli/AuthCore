@@ -4,8 +4,8 @@ pub mod limiter;
 pub mod oauth;
 pub mod recovery;
 pub mod security;
-pub mod verification;
 pub mod state;
+pub mod verification;
 
 use axum::{
     body::Body,

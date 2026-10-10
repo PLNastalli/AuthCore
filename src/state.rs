@@ -66,10 +66,15 @@ impl AppState {
             || public_origin.starts_with("http://127.0.0.1:");
         let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
         let loopback_bind = bind_addr.starts_with("127.0.0.1:") || bind_addr.starts_with("[::1]:");
-        let dev_skip_email_verification =
-            matches!(env::var("AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION").as_deref(), Ok("true"));
-        if dev_skip_email_verification && !(cfg!(debug_assertions) && local_origin && loopback_bind) {
-            return Err("email-verification bypass is restricted to debug builds bound to loopback".into());
+        let dev_skip_email_verification = matches!(
+            env::var("AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION").as_deref(),
+            Ok("true")
+        );
+        if dev_skip_email_verification && !(cfg!(debug_assertions) && local_origin && loopback_bind)
+        {
+            return Err(
+                "email-verification bypass is restricted to debug builds bound to loopback".into(),
+            );
         }
         let google = match (
             env::var("GOOGLE_CLIENT_ID").ok().filter(|v| !v.is_empty()),
@@ -130,8 +135,10 @@ impl AppState {
         let _: String = redis::cmd("PING").query_async(&mut conn).await?;
         let passwords = crate::security::PasswordService::new(4);
         let dummy_password_hash = Arc::new(
-            passwords.hash(crate::security::generate_refresh().0).await
-                .map_err(|_| "failed to initialize dummy Argon2 hash")?
+            passwords
+                .hash(crate::security::generate_refresh().0)
+                .await
+                .map_err(|_| "failed to initialize dummy Argon2 hash")?,
         );
         Ok(Self {
             db,
