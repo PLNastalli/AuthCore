@@ -168,7 +168,6 @@ impl AppState {
     }
 }
 
-
 /// Validates canonical public origins rather than trusting textual prefixes.
 /// Origin validation is security-sensitive because it governs cookies, OAuth and CSRF.
 fn validate_http_security_config(
@@ -228,7 +227,10 @@ mod config_security_tests {
             "https://user:secret@auth.example.com",
             "http://auth.example.com",
         ] {
-            assert!(validate(origin, false, "127.0.0.1:3000", false).is_err(), "{origin}");
+            assert!(
+                validate(origin, false, "127.0.0.1:3000", false).is_err(),
+                "{origin}"
+            );
         }
         assert!(validate("https://auth.example.com", false, "127.0.0.1:3000", false).is_err());
     }
