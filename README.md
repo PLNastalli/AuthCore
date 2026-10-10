@@ -192,7 +192,7 @@ This is a portfolio project, not a replacement for an audited identity provider.
 - IP-based rate limits use the direct socket peer, so deployment behind a reverse proxy requires a trusted-proxy policy.
 - Generic login errors are returned, but the missing-account path still needs work to reduce timing differences.
 - There is no established threat-model review, penetration test, security audit, benchmark report, or production operations manual.
-- The initial dependency versions are not yet captured in a committed `Cargo.lock`.
+- Dependency versions are committed in `Cargo.lock` for reproducible builds.
 
 Do **not** interpret an unchecked feature or an example shell command as proof of production readiness.
 

@@ -1,10 +1,10 @@
 FROM rust:1-bookworm AS builder
 WORKDIR /build
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
 COPY openapi.json ./
-RUN cargo build --release
+RUN cargo build --release --locked
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
