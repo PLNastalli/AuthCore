@@ -9,6 +9,12 @@ pub struct JwtKeys {
     pub audience: String,
 }
 
+pub struct GoogleOAuth {
+    pub client_id: String,
+    pub client_secret: String,
+    pub redirect_uri: String,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
@@ -16,6 +22,8 @@ pub struct AppState {
     pub jwt: Arc<JwtKeys>,
     pub public_origin: String,
     pub cookie_secure: bool,
+    pub google: Option<Arc<GoogleOAuth>>,
+    pub http: reqwest::Client,
 }
 
 impl AppState {
@@ -44,6 +52,28 @@ impl AppState {
         {
             return Err("production PUBLIC_ORIGIN must use HTTPS".into());
         }
+        let google = match (
+            env::var("GOOGLE_CLIENT_ID").ok().filter(|v| !v.is_empty()),
+            env::var("GOOGLE_CLIENT_SECRET").ok().filter(|v| !v.is_empty()),
+            env::var("GOOGLE_REDIRECT_URI").ok().filter(|v| !v.is_empty()),
+        ) {
+            (None, None, None) => None,
+            (Some(client_id), Some(client_secret), Some(redirect_uri)) => {
+                let uri = reqwest::Url::parse(&redirect_uri)?;
+                let expected = format!("{}/api/v1/oauth/google/callback", public_origin);
+                if uri.as_str() != expected {
+                    return Err("GOOGLE_REDIRECT_URI must match PUBLIC_ORIGIN and the callback route".into());
+                }
+                Some(Arc::new(GoogleOAuth {
+                    client_id, client_secret, redirect_uri,
+                }))
+            }
+            _ => return Err("configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI together".into()),
+        };
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         let encoding = EncodingKey::from_rsa_pem(&fs::read(private_path)?)?;
         let decoding = DecodingKey::from_rsa_pem(&fs::read(public_path)?)?;
         let db = PgPoolOptions::new()
@@ -67,6 +97,8 @@ impl AppState {
             }),
             public_origin,
             cookie_secure,
+            google,
+            http,
         })
     }
 

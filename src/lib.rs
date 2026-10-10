@@ -1,6 +1,7 @@
 pub mod error;
 pub mod handlers;
 pub mod limiter;
+pub mod oauth;
 pub mod security;
 pub mod state;
 
@@ -17,6 +18,8 @@ pub fn app(state: AppState) -> Router {
         .route("/ready", get(handlers::ready))
         .route("/openapi.json", get(handlers::openapi))
         .route("/api/v1/auth/register", post(handlers::register))
+        .route("/api/v1/oauth/google/start", get(oauth::start))
+        .route("/api/v1/oauth/google/callback", get(oauth::callback))
         .route("/api/v1/auth/login", post(handlers::login))
         .route("/api/v1/auth/refresh", post(handlers::refresh))
         .route("/api/v1/auth/logout", post(handlers::logout))
