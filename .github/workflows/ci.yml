@@ -1,0 +1,80 @@
+name: Rust CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: authcore
+          POSTGRES_USER: authcore
+          POSTGRES_PASSWORD: authcore_dev_only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U authcore -d authcore"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://authcore:authcore_dev_only@127.0.0.1:5432/authcore
+      REDIS_URL: redis://127.0.0.1:6379/
+      JWT_PRIVATE_KEY_PATH: .dev-keys/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: .dev-keys/jwt-public.pem
+      JWT_ISSUER: authcore-ci
+      JWT_AUDIENCE: authcore-api
+      PUBLIC_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+      BIND_ADDR: 127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate test keys
+        run: sh scripts/dev-keys.sh
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Unit tests
+        run: cargo test --all-targets
+      - name: HTTP smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run > /tmp/authcore.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; cat /tmp/authcore.log' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:3000/ready >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:3000/ready
+          curl -fsS -X POST http://localhost:3000/api/v1/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"a-long-demo-password-2026"}'
+          curl -fsS -c /tmp/authcore-cookies -X POST http://localhost:3000/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"a-long-demo-password-2026"}' \
+            | tee /tmp/authcore-login.json
+          bearer=$(jq -r '.access_token' /tmp/authcore-login.json)
+          curl -fsS http://localhost:3000/api/v1/auth/me -H "Authorization: Bearer $bearer"
+          curl -fsS -b /tmp/authcore-cookies -c /tmp/authcore-cookies \
+            -H 'Origin: http://localhost:3000' -X POST \
+            http://localhost:3000/api/v1/auth/refresh \
+            | jq -e '.access_token'
+          curl -fsS -o /dev/null -w '%{http_code}\n' -X POST \
+            http://localhost:3000/api/v1/auth/logout \
+            -H "Authorization: Bearer $bearer" | grep 204

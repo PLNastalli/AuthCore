@@ -1,0 +1,47 @@
+services:
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATABASE_URL: postgres://authcore:authcore_dev_only@postgres:5432/authcore
+      REDIS_URL: redis://redis:6379/
+      BIND_ADDR: 0.0.0.0:3000
+      JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+      JWT_ISSUER: authcore-local
+      JWT_AUDIENCE: authcore-api
+      PUBLIC_ORIGIN: http://localhost:3000
+      COOKIE_SECURE: "false"
+      RUST_LOG: authcore=info,tower_http=info
+    volumes:
+      - ./.dev-keys:/app/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: authcore
+      POSTGRES_USER: authcore
+      POSTGRES_PASSWORD: authcore_dev_only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authcore -d authcore"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg_data:
