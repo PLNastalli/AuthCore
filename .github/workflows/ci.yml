@@ -45,6 +45,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Generate test keys
         run: sh scripts/dev-keys.sh
+      - name: Capture resolved Cargo lockfile
+        run: |
+          cargo generate-lockfile
+          echo 'AUTHCORE_CARGO_LOCK_BEGIN'
+          cat Cargo.lock
+          echo 'AUTHCORE_CARGO_LOCK_END'
       - name: Format source for review
         run: cargo fmt --all
       - name: Show formatting diff
