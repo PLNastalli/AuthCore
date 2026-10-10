@@ -216,6 +216,23 @@ pub async fn login(
     let session_id = Uuid::new_v4();
     let (refresh, hash) = security::generate_refresh();
     let mut tx = state.db.begin().await.map_err(database_error)?;
+    // Serialize session creation with password changes and account recovery.
+    // Password verification happened outside the transaction to avoid holding
+    // a database lock during expensive Argon2 work. Recheck the credential
+    // under the row lock before committing the session.
+    let current: Option<(String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "SELECT password_hash, email_verified_at FROM users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(user.id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(database_error)?;
+    let Some((current_hash, verified_at)) = current else {
+        return Err(ApiError::Unauthorized);
+    };
+    if current_hash != user.password_hash || verified_at.is_none() {
+        return Err(ApiError::Unauthorized);
+    }
     sqlx::query("INSERT INTO sessions (id, user_id) VALUES ($1, $2)")
         .bind(session_id)
         .bind(user.id)
