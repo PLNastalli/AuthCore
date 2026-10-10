@@ -257,7 +257,7 @@ pub async fn refresh(
              FROM refresh_tokens t JOIN sessions s ON s.id = t.session_id
              WHERE t.token_hash = $1 FOR UPDATE OF s, t",
     )
-    .bind(token_hash)
+    .bind(&token_hash)
     .fetch_optional(&mut *tx)
     .await
     .map_err(database_error)?;
