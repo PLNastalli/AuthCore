@@ -9,6 +9,11 @@ pub struct JwtKeys {
     pub audience: String,
 }
 
+pub struct RecoveryMailer {
+    pub api_key: String,
+    pub from_email: String,
+}
+
 pub struct GoogleOAuth {
     pub client_id: String,
     pub client_secret: String,
@@ -24,6 +29,7 @@ pub struct AppState {
     pub cookie_secure: bool,
     pub google: Option<Arc<GoogleOAuth>>,
     pub http: reqwest::Client,
+    pub recovery_mailer: Option<Arc<RecoveryMailer>>,
 }
 
 impl AppState {
@@ -70,6 +76,14 @@ impl AppState {
             }
             _ => return Err("configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI together".into()),
         };
+        let recovery_mailer = match (
+            env::var("RESEND_API_KEY").ok().filter(|v| !v.is_empty()),
+            env::var("RESET_FROM_EMAIL").ok().filter(|v| !v.is_empty()),
+        ) {
+            (None, None) => None,
+            (Some(api_key), Some(from_email)) => Some(Arc::new(RecoveryMailer { api_key, from_email })),
+            _ => return Err("configure RESEND_API_KEY and RESET_FROM_EMAIL together".into()),
+        };
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
@@ -99,6 +113,7 @@ impl AppState {
             cookie_secure,
             google,
             http,
+            recovery_mailer,
         })
     }
 
