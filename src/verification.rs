@@ -132,7 +132,28 @@ pub async fn verify(
         return Err(ApiError::Unauthorized);
     }
     let hash = security::hash_refresh(&body.token);
+    // Lock the account before locking a token row. Concurrent verification of
+    // different outstanding tokens otherwise permits a user/token lock inversion.
+    let identity: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT user_id FROM email_verification_tokens WHERE token_hash=$1"
+    )
+    .bind(&hash)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(database_error)?;
+    let (user_id,) = identity.ok_or(ApiError::Unauthorized)?;
+
     let mut tx = state.db.begin().await.map_err(database_error)?;
+    let account: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM users WHERE id=$1 FOR UPDATE"
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(database_error)?;
+    if account.is_none() {
+        return Err(ApiError::Unauthorized);
+    }
     let pending: Option<PendingVerification> = sqlx::query_as(
         "SELECT user_id,expires_at,consumed_at
          FROM email_verification_tokens WHERE token_hash=$1 FOR UPDATE",
