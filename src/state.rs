@@ -30,6 +30,9 @@ pub struct AppState {
     pub google: Option<Arc<GoogleOAuth>>,
     pub http: reqwest::Client,
     pub recovery_mailer: Option<Arc<RecoveryMailer>>,
+    /// Local debug builds can run self-contained authentication tests without sending email.
+    pub dev_skip_email_verification: bool,
+    pub dummy_password_hash: Arc<String>,
 }
 
 impl AppState {
@@ -57,6 +60,15 @@ impl AppState {
             && !public_origin.starts_with("http://127.0.0.1:")
         {
             return Err("production PUBLIC_ORIGIN must use HTTPS".into());
+        }
+        let local_origin = public_origin.starts_with("http://localhost:")
+            || public_origin.starts_with("http://127.0.0.1:");
+        let bind_addr = env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+        let loopback_bind = bind_addr.starts_with("127.0.0.1:") || bind_addr.starts_with("[::1]:");
+        let dev_skip_email_verification =
+            matches!(env::var("AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION").as_deref(), Ok("true"));
+        if dev_skip_email_verification && !(cfg!(debug_assertions) && local_origin && loopback_bind) {
+            return Err("email-verification bypass is restricted to debug builds bound to loopback".into());
         }
         let google = match (
             env::var("GOOGLE_CLIENT_ID").ok().filter(|v| !v.is_empty()),
@@ -115,6 +127,10 @@ impl AppState {
         // No silent fail-open if the rate limiter is unavailable.
         let mut conn = redis.get_multiplexed_async_connection().await?;
         let _: String = redis::cmd("PING").query_async(&mut conn).await?;
+        let dummy_password_hash = Arc::new(
+            crate::security::hash_password(crate::security::generate_refresh().0).await
+                .map_err(|_| "failed to initialize dummy Argon2 hash")?
+        );
         Ok(Self {
             db,
             redis,
@@ -129,6 +145,8 @@ impl AppState {
             google,
             http,
             recovery_mailer,
+            dev_skip_email_verification,
+            dummy_password_hash,
         })
     }
 

@@ -258,7 +258,7 @@ async fn persist_google_identity(state: &AppState, claims: GoogleClaims) -> Resu
     let password_hash = security::hash_password(unknown_password).await?;
     let user_id = Uuid::new_v4();
     let mut tx = state.db.begin().await.map_err(database_error)?;
-    sqlx::query("INSERT INTO users (id,email,password_hash) VALUES ($1,$2,$3)")
+    sqlx::query("INSERT INTO users (id,email,password_hash,email_verified_at) VALUES ($1,$2,$3,NOW())")
         .bind(user_id)
         .bind(&email)
         .bind(password_hash)

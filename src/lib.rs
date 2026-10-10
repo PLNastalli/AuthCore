@@ -4,6 +4,7 @@ pub mod limiter;
 pub mod oauth;
 pub mod recovery;
 pub mod security;
+pub mod verification;
 pub mod state;
 
 use axum::{
@@ -21,6 +22,8 @@ pub fn app(state: AppState) -> Router {
         .route("/ready", get(handlers::ready))
         .route("/openapi.json", get(handlers::openapi))
         .route("/api/v1/auth/register", post(handlers::register))
+        .route("/api/v1/auth/verify-email", post(verification::verify))
+        .route("/api/v1/auth/resend-verification", post(verification::resend))
         .route("/api/v1/oauth/google/start", get(oauth::start))
         .route("/api/v1/oauth/google/callback", get(oauth::callback))
         .route("/api/v1/auth/login", post(handlers::login))

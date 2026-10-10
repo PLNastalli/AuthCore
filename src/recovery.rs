@@ -49,7 +49,7 @@ pub async fn forgot_password(
         None => return Ok(StatusCode::ACCEPTED), // Do not reveal account existence.
     };
     limiter::check(&state.redis, "forgot-email", &email, 3, 3600).await?;
-    let user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email=$1")
+    let user: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email=$1 AND email_verified_at IS NOT NULL")
         .bind(&email)
         .fetch_optional(&state.db)
         .await

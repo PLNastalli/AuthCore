@@ -22,6 +22,7 @@ struct User {
     email: String,
     password_hash: String,
     created_at: DateTime<Utc>,
+    email_verified_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize)]
@@ -29,6 +30,7 @@ pub struct UserView {
     id: Uuid,
     email: String,
     created_at: DateTime<Utc>,
+    email_verified: bool,
 }
 
 impl From<User> for UserView {
@@ -37,6 +39,7 @@ impl From<User> for UserView {
             id: value.id,
             email: value.email,
             created_at: value.created_at,
+            email_verified: value.email_verified_at.is_some(),
         }
     }
 }
@@ -150,12 +153,19 @@ pub async fn register(
     if !security::valid_password(&body.password) {
         return Err(ApiError::Invalid("password_must_be_12_to_1024_bytes"));
     }
+    if !state.dev_skip_email_verification && state.recovery_mailer.is_none() {
+        return Err(ApiError::Unavailable);
+    }
     let hash = security::hash_password(body.password).await?;
     let user_id = Uuid::new_v4();
-    let result = sqlx::query("INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)")
+    let result = sqlx::query(
+        "INSERT INTO users (id, email, password_hash, email_verified_at)
+         VALUES ($1, $2, $3, CASE WHEN $4 THEN NOW() ELSE NULL END)",
+    )
         .bind(user_id)
         .bind(&email)
         .bind(hash)
+        .bind(state.dev_skip_email_verification)
         .execute(&state.db)
         .await;
     match result {
@@ -166,11 +176,14 @@ pub async fn register(
         Err(err) => return Err(database_error(err)),
     }
     let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at FROM users WHERE id = $1")
+        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(&state.db)
             .await
             .map_err(database_error)?;
+    if !state.dev_skip_email_verification {
+        crate::verification::send(&state, user_id, &email).await?;
+    }
     Ok((StatusCode::CREATED, Json(UserView::from(user))))
 }
 
@@ -183,13 +196,18 @@ pub async fn login(
     let email = security::valid_email(&body.email).ok_or(ApiError::Unauthorized)?;
     limiter::check(&state.redis, "login-account", &email, 10, 300).await?;
     let user: Option<User> =
-        sqlx::query_as("SELECT id, email, password_hash, created_at FROM users WHERE email = $1")
+        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE email = $1")
             .bind(&email)
             .fetch_optional(&state.db)
             .await
             .map_err(database_error)?;
+    // Always perform Argon2 verification for a syntactically valid login.
+    // A stable dummy hash mitigates immediate user-enumeration timing differences.
+    let selected_hash = user.as_ref().map(|account| account.password_hash.clone())
+        .unwrap_or_else(|| state.dummy_password_hash.as_ref().clone());
+    let matches = security::check_password(body.password, selected_hash).await?;
     let user = user.ok_or(ApiError::Unauthorized)?;
-    if !security::check_password(body.password, user.password_hash).await? {
+    if !matches || user.email_verified_at.is_none() {
         return Err(ApiError::Unauthorized);
     }
     let session_id = Uuid::new_v4();
@@ -299,7 +317,7 @@ pub async fn me(
 ) -> Result<impl IntoResponse, ApiError> {
     let (user_id, _) = active_user(&state, &headers).await?;
     let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at FROM users WHERE id = $1")
+        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(&state.db)
             .await
@@ -383,7 +401,7 @@ pub async fn change_password(
         return Err(ApiError::Invalid("password_must_be_12_to_1024_bytes"));
     }
     let user: User =
-        sqlx::query_as("SELECT id, email, password_hash, created_at FROM users WHERE id=$1")
+        sqlx::query_as("SELECT id, email, password_hash, created_at, email_verified_at FROM users WHERE id=$1")
             .bind(user_id)
             .fetch_one(&state.db)
             .await

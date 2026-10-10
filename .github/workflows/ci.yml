@@ -35,6 +35,7 @@ jobs:
       JWT_AUDIENCE: authcore-api
       PUBLIC_ORIGIN: http://localhost:3000
       COOKIE_SECURE: "false"
+      AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION: "true"
       BIND_ADDR: 127.0.0.1:3000
     steps:
       - uses: actions/checkout@v4
