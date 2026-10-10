@@ -3,7 +3,7 @@
   "info": {
     "title": "AuthCore",
     "version": "0.1.0",
-    "description": "API-only Rust authentication service. Password reset and Google OIDC are not implemented."
+    "description": "API-only Rust authentication service. External Google OIDC and Resend mail delivery need credentials and independent verification."
   },
   "servers": [
     {
@@ -74,6 +74,35 @@
         "properties": {
           "error": {
             "type": "string"
+          }
+        }
+      },
+      "ForgotPassword": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
+      },
+      "ResetPassword": {
+        "type": "object",
+        "required": [
+          "token",
+          "new_password"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 12,
+            "maxLength": 1024
           }
         }
       }
@@ -298,6 +327,102 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/forgot-password": {
+      "post": {
+        "summary": "Request email with a one-time password-reset token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted, regardless of account existence"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Mail provider not configured"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "summary": "Consume reset token and revoke all active sessions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPassword"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password changed"
+          },
+          "401": {
+            "description": "Invalid, expired, or already consumed token"
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/google/start": {
+      "get": {
+        "summary": "Start Google OIDC + PKCE",
+        "responses": {
+          "307": {
+            "description": "Redirect to Google"
+          },
+          "503": {
+            "description": "Provider not configured"
+          }
+        }
+      }
+    },
+    "/api/v1/oauth/google/callback": {
+      "get": {
+        "summary": "Validate OIDC callback and issue AuthCore session",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access JWT plus secure refresh cookie"
+          },
+          "401": {
+            "description": "Invalid provider response"
+          },
+          "403": {
+            "description": "Invalid state binding"
           }
         }
       }

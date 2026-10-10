@@ -19,8 +19,8 @@ This is **experimental authentication software**, not an audited identity provid
 
 ## Known gaps
 
-- No verified-email onboarding or password recovery.
-- No OIDC provider integration.
+- No verified-email onboarding. Reset-token handling has integration tests; external Resend email delivery is not yet verified.
+- Google OIDC integration code is present; external authentication against Google has not been tested.
 - No RSA signing key rotation.
 - Account-enumeration timing differences need additional review.
 - No external penetration test or independent security review.

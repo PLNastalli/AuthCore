@@ -13,6 +13,11 @@ services:
       JWT_AUDIENCE: authcore-api
       PUBLIC_ORIGIN: http://localhost:3000
       COOKIE_SECURE: "false"
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESET_FROM_EMAIL: ${RESET_FROM_EMAIL:-}
       RUST_LOG: authcore=info,tower_http=info
     volumes:
       - ./.dev-keys:/app/keys:ro

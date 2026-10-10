@@ -22,7 +22,7 @@ A self-hosted authentication learning project exploring credential security, RSA
 
 AuthCore is a backend-only portfolio project. Its purpose is to make complex authentication flows explicit and testable rather than hiding them behind a managed identity provider. There is no frontend or dashboard.
 
-The initial source implementation includes registration, password login, JWT access tokens, opaque refresh tokens, database-backed sessions, and rate limiting. **Google OpenID Connect and password recovery are not implemented yet.** See the [roadmap](#roadmap).
+The initial source implementation includes registration, password login, JWT access tokens, opaque refresh tokens, database-backed sessions, and rate limiting. Google OpenID Connect and single-use password reset code have also been added, but **the external Google and Resend provider flows have not been verified with real credentials**. See the [roadmap](#roadmap).
 
 ## Features
 
@@ -38,8 +38,8 @@ The initial source implementation includes registration, password login, JWT acc
 | Redis Lua rate limiting and fail-closed on Redis errors | Implemented in source; verification pending |
 | OpenAPI 3 spec at `/openapi.json` | Added; validation pending |
 | Docker Compose and GitHub Actions | Added; verification pending |
-| Google OAuth2 / OIDC + PKCE | Planned |
-| Email-based password recovery | Planned |
+| Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented in source; external provider testing pending |
+| One-time password reset, optional Resend delivery | Implemented in source; external delivery testing pending |
 | RSA signing-key rotation with multiple active `kid` values | Planned |
 | Independent security audit and load benchmarks | Planned |
 
@@ -64,7 +64,7 @@ src/
   state.rs        # App configuration, database and Redis clients, JWT keys
   handlers.rs     # HTTP authentication endpoints and transactional session logic
   security.rs     # Argon2id, JWTs, opaque refresh tokens, validation
-  limiter.rs      # Atomic rate limiting via Redis Lua
+  limiter.rs      # Atomic rate limiting via Redis Lua\n  oauth.rs        # Google OIDC flow, PKCE and JWKS validation\n  recovery.rs     # Password reset and mail delivery adapter
   error.rs        # Sanitized API errors
 migrations/       # PostgreSQL schema
 openapi.json      # OpenAPI document
@@ -105,6 +105,16 @@ cargo run
 On Windows use Git Bash or WSL to run the shell script, or create a 3072-bit RSA key pair with OpenSSL and place it at the paths referenced by `.env`.
 
 The server runs SQLx migrations at startup. It refuses startup when PostgreSQL, Redis, or the configured key files are unavailable.
+
+## External identity and email configuration
+
+The core email/password authentication works without external providers.
+
+**Google login:** configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` together. The callback URI must exactly match `PUBLIC_ORIGIN/api/v1/oauth/google/callback` and be registered in Google Cloud. Visit `GET /api/v1/oauth/google/start` in a browser to begin the flow. The callback returns tokens as JSON and sets the refresh cookie; it does not create a frontend. Accounts sharing an existing local email are **not linked automatically**. See [the OIDC integration guide](docs/GOOGLE_OIDC.md).
+
+**Password recovery:** set `RESEND_API_KEY` and `RESET_FROM_EMAIL` (a verified sender domain). Without both values, the recovery request endpoint returns 503; it never puts reset tokens in API responses or logs. The email includes a one-time token to submit to `POST /api/v1/auth/reset-password`. See [the recovery guide](docs/PASSWORD_RECOVERY.md).
+
+The implementations are written and compile-tested, but **real provider integrations require separate end-to-end verification and are not audited**.
 
 ## API reference
 
@@ -165,9 +175,9 @@ Access tokens are passed explicitly as `Authorization: Bearer`. Refresh tokens u
 
 This is a portfolio project, not a replacement for an audited identity provider.
 
-- OAuth2/OpenID Connect login and secure account-recovery delivery are not present.
+- OAuth2/OpenID Connect code and Resend reset-email delivery have been added, but cannot be verified end-to-end without external test credentials. Email ownership is not yet verified during registration.
 - Key rotation and a multi-key JWKS publishing strategy are not present.
-- Email ownership is not yet verified.
+- OAuth account linking is intentionally restricted: existing local accounts cannot be silently linked just because an external provider presents the same email.
 - IP-based rate limits use the direct socket peer, so deployment behind a reverse proxy requires a trusted-proxy policy.
 - Generic login errors are returned, but the missing-account path still needs work to reduce timing differences.
 - There is no established threat-model review, penetration test, security audit, benchmark report, or production operations manual.
@@ -191,8 +201,8 @@ GitHub Actions also has a PostgreSQL/Redis-backed HTTP smoke test for registrati
 - [x] Add Redis rate-limit code, containers, OpenAPI and CI configuration
 - [ ] Confirm clean compilation and passing CI
 - [ ] Add realistic end-to-end/concurrent-refresh integration tests
-- [ ] Implement verified-email onboarding and password reset mail delivery
-- [ ] Implement Google OpenID Connect using Authorization Code + PKCE
+- [x] Implement password reset token lifecycle and optional Resend delivery adapter\n- [ ] Verify actual email delivery and implement verified-email onboarding
+- [x] Add Google OpenID Connect code with Authorization Code + PKCE, JWKS and state binding\n- [ ] Verify full Google login with test OAuth credentials
 - [ ] Add versioned RSA key rotation, hardened deployment configuration and metrics
 - [ ] Conduct external security review and publish reproducible load benchmarks
 
