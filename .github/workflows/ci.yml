@@ -93,3 +93,12 @@ jobs:
           curl -fsS -o /dev/null -w '%{http_code}\n' -X POST \
             http://localhost:3000/api/v1/auth/logout \
             -H "Authorization: Bearer $bearer" | grep 204
+          python3 scripts/benchmark.py --url http://localhost:3000 \
+            --requests 100 --concurrency 4 --output benchmark-results.json
+      - name: Upload performance smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authcore-readiness-benchmark
+          path: benchmark-results.json
+          if-no-files-found: ignore
