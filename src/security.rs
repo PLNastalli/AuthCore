@@ -42,7 +42,7 @@ pub fn issue_access(state: &AppState, user_id: Uuid, session_id: Uuid) -> Result
         token_type: "access".into(),
     };
     let mut header = Header::new(Algorithm::RS256);
-    header.kid = Some("primary".to_string());
+    header.kid = Some(state.jwt.signing_kid.clone());
     encode(&header, &claims, &state.jwt.encoding).map_err(|_| ApiError::Internal)
 }
 
@@ -54,16 +54,18 @@ pub fn verify_access(state: &AppState, headers: &HeaderMap) -> Result<(Uuid, Uui
         .filter(|s| !s.is_empty())
         .ok_or(ApiError::Unauthorized)?;
 
-    // The configured key is the only accepted signing key until versioned key rotation lands.
     let token_header = decode_header(raw).map_err(|_| ApiError::Unauthorized)?;
-    if token_header.alg != Algorithm::RS256 || token_header.kid.as_deref() != Some("primary") {
+    if token_header.alg != Algorithm::RS256 {
         return Err(ApiError::Unauthorized);
     }
+    // Never fetch a key using token-supplied URLs. Only configured keys are accepted.
+    let kid = token_header.kid.ok_or(ApiError::Unauthorized)?;
+    let decoding = state.jwt.verification_keys.get(&kid).ok_or(ApiError::Unauthorized)?;
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_issuer(&[state.jwt.issuer.as_str()]);
     validation.set_audience(&[state.jwt.audience.as_str()]);
     validation.required_spec_claims.insert("sub".into());
-    let token = decode::<Claims>(raw, &state.jwt.decoding, &validation)
+    let token = decode::<Claims>(raw, decoding, &validation)
         .map_err(|_| ApiError::Unauthorized)?;
     if token.claims.token_type != "access" {
         return Err(ApiError::Unauthorized);

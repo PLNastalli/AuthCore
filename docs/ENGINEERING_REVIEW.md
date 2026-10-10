@@ -19,7 +19,7 @@ This is a living review log, not a certificate of security or performance. The c
 3. Email normalization is deliberately conservative and lowercases the whole address; the comparison policy must be reviewed for internationalized email and providers with case-sensitive local parts.
 4. Distributed rate limiting currently uses a fixed window. A token-bucket strategy and carefully configured trusted proxy semantics may be needed at scale.
 5. The project has no automatic expiry cleanup job, audit-event retention policy, or fully documented disaster recovery process.
-6. Session-list pagination, provider account linking, key rotation and MFA are not implemented.
+6. Session-list pagination, provider account linking, automatic KMS-driven rotation and MFA are not implemented.
 7. Credentials are not automatically zeroized in every memory buffer; inspect cryptographic and password handling with a dedicated security review.
 8. Dependency audits report advisories but cannot substitute for code-level review.
 

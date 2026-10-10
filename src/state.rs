@@ -1,10 +1,11 @@
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use sqlx::{postgres::PgPoolOptions, PgPool};
-use std::{env, error::Error, fs, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, error::Error, fs, sync::Arc, time::Duration};
 
 pub struct JwtKeys {
     pub encoding: EncodingKey,
-    pub decoding: DecodingKey,
+    pub signing_kid: String,
+    pub verification_keys: HashMap<String, DecodingKey>,
     pub issuer: String,
     pub audience: String,
 }
@@ -105,8 +106,30 @@ impl AppState {
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
+        let signing_kid = env::var("JWT_ACTIVE_KID").unwrap_or_else(|_| "primary".into());
+        if !valid_kid(&signing_kid) {
+            return Err("JWT_ACTIVE_KID must be 1-64 ASCII letters, digits, _, - or .".into());
+        }
         let encoding = EncodingKey::from_rsa_pem(&fs::read(private_path)?)?;
-        let decoding = DecodingKey::from_rsa_pem(&fs::read(public_path)?)?;
+        let mut verification_keys = HashMap::new();
+        verification_keys.insert(
+            signing_kid.clone(),
+            DecodingKey::from_rsa_pem(&fs::read(public_path)?)?,
+        );
+        // Rotation: retain old public keys for as long as already-issued JWTs
+        // can remain valid. New JWTs are always signed with JWT_ACTIVE_KID.
+        if let Ok(json) = env::var("JWT_LEGACY_PUBLIC_KEYS_JSON") {
+            let legacy: HashMap<String, String> = serde_json::from_str(&json)?;
+            if legacy.len() > 16 {
+                return Err("JWT legacy key count must not exceed 16".into());
+            }
+            for (kid, path) in legacy {
+                if !valid_kid(&kid) || verification_keys.contains_key(&kid) {
+                    return Err("invalid or duplicate JWT legacy key identifier".into());
+                }
+                verification_keys.insert(kid, DecodingKey::from_rsa_pem(&fs::read(path)?)?);
+            }
+        }
         let db = PgPoolOptions::new()
             .max_connections(10)
             .acquire_timeout(Duration::from_secs(5))
@@ -129,7 +152,8 @@ impl AppState {
             redis,
             jwt: Arc::new(JwtKeys {
                 encoding,
-                decoding,
+                signing_kid,
+                verification_keys,
                 issuer,
                 audience,
             }),
@@ -165,6 +189,27 @@ impl AppState {
                 if self.cookie_secure { "; Secure" } else { "" }
             ),
         }
+    }
+}
+
+fn valid_kid(kid: &str) -> bool {
+    !kid.is_empty()
+        && kid.len() <= 64
+        && kid
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}
+
+#[cfg(test)]
+mod key_id_tests {
+    use super::valid_kid;
+
+    #[test]
+    fn rejects_untrusted_key_identifiers() {
+        for invalid in ["", "../secret", "bad kid", "a/b", "kid:bad", "é"] {
+            assert!(!valid_kid(invalid), "{invalid}");
+        }
+        assert!(valid_kid("release-2026.10"));
     }
 }
 

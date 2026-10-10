@@ -49,7 +49,7 @@ The initial source implementation includes registration, password login, JWT acc
 | Email verification with single-use tokens and resend | **Database flow tested**; live Resend delivery unverified |
 | Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented; external Google provider tests pending |
 | One-time password reset, optional Resend delivery | **Token lifecycle tested**; live email delivery pending |
-| RSA signing-key rotation with multiple active `kid` values | Not implemented |
+| RSA signing-key rotation with trusted configured `kid` values | Implemented in source; deployment testing pending |
 | Independent security audit and load benchmarks | Not performed |
 
 ## Architecture
@@ -241,7 +241,7 @@ GitHub Actions also has a PostgreSQL/Redis-backed HTTP smoke test for registrati
 - [ ] Add realistic end-to-end/concurrent-refresh integration tests
 - [x] Implement password reset token lifecycle and optional Resend delivery adapter\n- [ ] Verify actual email delivery and implement verified-email onboarding
 - [x] Add Google OpenID Connect code with Authorization Code + PKCE, JWKS and state binding\n- [ ] Verify full Google login with test OAuth credentials
-- [ ] Add versioned RSA key rotation, hardened deployment configuration and metrics
+- [x] Add configuration-driven RSA key rotation with a bounded trusted verification key set\n- [ ] Add protected metrics and complete deployment hardening (test in staging)
 - [ ] Conduct external security review and publish reproducible load benchmarks
 
 ## Inspiration
