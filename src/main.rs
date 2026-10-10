@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match dotenvy::dotenv() {
         Ok(_) => {}
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(Box::new(error)),
+        Err(error) => return Err(error.into()),
     }
     tracing_subscriber::fmt()
         .with_env_filter(
