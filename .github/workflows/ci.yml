@@ -47,7 +47,7 @@ jobs:
       - name: Format
         run: cargo fmt --all
       - name: Show required formatting changes
-        run: git diff -- src
+        run: git diff -- src tests
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
       - name: Unit tests

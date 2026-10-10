@@ -23,8 +23,14 @@ pub fn app(state: AppState) -> Router {
         .route("/api/v1/oauth/google/callback", get(oauth::callback))
         .route("/api/v1/auth/login", post(handlers::login))
         .route("/api/v1/auth/refresh", post(handlers::refresh))
-        .route("/api/v1/auth/forgot-password", post(recovery::forgot_password))
-        .route("/api/v1/auth/reset-password", post(recovery::reset_password))
+        .route(
+            "/api/v1/auth/forgot-password",
+            post(recovery::forgot_password),
+        )
+        .route(
+            "/api/v1/auth/reset-password",
+            post(recovery::reset_password),
+        )
         .route("/api/v1/auth/logout", post(handlers::logout))
         .route("/api/v1/auth/logout-all", post(handlers::logout_all))
         .route(

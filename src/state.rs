@@ -60,28 +60,43 @@ impl AppState {
         }
         let google = match (
             env::var("GOOGLE_CLIENT_ID").ok().filter(|v| !v.is_empty()),
-            env::var("GOOGLE_CLIENT_SECRET").ok().filter(|v| !v.is_empty()),
-            env::var("GOOGLE_REDIRECT_URI").ok().filter(|v| !v.is_empty()),
+            env::var("GOOGLE_CLIENT_SECRET")
+                .ok()
+                .filter(|v| !v.is_empty()),
+            env::var("GOOGLE_REDIRECT_URI")
+                .ok()
+                .filter(|v| !v.is_empty()),
         ) {
             (None, None, None) => None,
             (Some(client_id), Some(client_secret), Some(redirect_uri)) => {
                 let uri = reqwest::Url::parse(&redirect_uri)?;
                 let expected = format!("{}/api/v1/oauth/google/callback", public_origin);
                 if uri.as_str() != expected {
-                    return Err("GOOGLE_REDIRECT_URI must match PUBLIC_ORIGIN and the callback route".into());
+                    return Err(
+                        "GOOGLE_REDIRECT_URI must match PUBLIC_ORIGIN and the callback route"
+                            .into(),
+                    );
                 }
                 Some(Arc::new(GoogleOAuth {
-                    client_id, client_secret, redirect_uri,
+                    client_id,
+                    client_secret,
+                    redirect_uri,
                 }))
             }
-            _ => return Err("configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI together".into()),
+            _ => return Err(
+                "configure GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI together"
+                    .into(),
+            ),
         };
         let recovery_mailer = match (
             env::var("RESEND_API_KEY").ok().filter(|v| !v.is_empty()),
             env::var("RESET_FROM_EMAIL").ok().filter(|v| !v.is_empty()),
         ) {
             (None, None) => None,
-            (Some(api_key), Some(from_email)) => Some(Arc::new(RecoveryMailer { api_key, from_email })),
+            (Some(api_key), Some(from_email)) => Some(Arc::new(RecoveryMailer {
+                api_key,
+                from_email,
+            })),
             _ => return Err("configure RESEND_API_KEY and RESET_FROM_EMAIL together".into()),
         };
         let http = reqwest::Client::builder()

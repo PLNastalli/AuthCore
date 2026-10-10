@@ -106,12 +106,25 @@ pub async fn start(
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
     let key = format!("authcore:oidc:{}", security::hash_refresh(&csrf));
 
-    let mut conn = state.redis.get_multiplexed_async_connection().await.map_err(|_| ApiError::Unavailable)?;
-    let serialized = serde_json::to_string(&StateData { verifier, nonce: nonce.clone() })
-        .map_err(|_| ApiError::Internal)?;
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
+    let serialized = serde_json::to_string(&StateData {
+        verifier,
+        nonce: nonce.clone(),
+    })
+    .map_err(|_| ApiError::Internal)?;
     let stored: Option<String> = redis::cmd("SET")
-        .arg(&key).arg(serialized).arg("NX").arg("EX").arg(600)
-        .query_async(&mut conn).await.map_err(|_| ApiError::Unavailable)?;
+        .arg(&key)
+        .arg(serialized)
+        .arg("NX")
+        .arg("EX")
+        .arg(600)
+        .query_async(&mut conn)
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
     if stored.as_deref() != Some("OK") {
         return Err(ApiError::Internal);
     }
@@ -128,15 +141,32 @@ pub async fn start(
         .append_pair("code_challenge_method", "S256");
     let mut headers = HeaderMap::new();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    headers.insert(header::SET_COOKIE, HeaderValue::from_str(&oauth_cookie(&state, Some(&csrf)))
-        .map_err(|_| ApiError::Internal)?);
+    headers.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&oauth_cookie(&state, Some(&csrf)))
+            .map_err(|_| ApiError::Internal)?,
+    );
     Ok((headers, Redirect::temporary(url.as_str())))
 }
 
-fn validate_callback_cookie(state: &AppState, headers: &HeaderMap, csrf: &str) -> Result<(), ApiError> {
-    let name = if state.cookie_secure { "__Host-authcore_oauth_csrf" } else { "authcore_oauth_csrf" };
-    let cookie = headers.get(header::COOKIE).and_then(|h| h.to_str().ok()).ok_or(ApiError::Forbidden)?;
-    let sent = cookie.split(';').map(str::trim).find_map(|entry| entry.strip_prefix(&format!("{name}=")))
+fn validate_callback_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+    csrf: &str,
+) -> Result<(), ApiError> {
+    let name = if state.cookie_secure {
+        "__Host-authcore_oauth_csrf"
+    } else {
+        "authcore_oauth_csrf"
+    };
+    let cookie = headers
+        .get(header::COOKIE)
+        .and_then(|h| h.to_str().ok())
+        .ok_or(ApiError::Forbidden)?;
+    let sent = cookie
+        .split(';')
+        .map(str::trim)
+        .find_map(|entry| entry.strip_prefix(&format!("{name}=")))
         .ok_or(ApiError::Forbidden)?;
     // Hash equality compares fixed-length digests, not attacker-controlled string length.
     if security::hash_refresh(sent) != security::hash_refresh(csrf) {
@@ -156,28 +186,45 @@ async fn validate_google_id_token(
         return Err(ApiError::Unauthorized);
     }
     let kid = head.kid.ok_or(ApiError::Unauthorized)?;
-    let jwks = state.http.get(JWKS_URL).send().await.map_err(|_| ApiError::Unavailable)?;
+    let jwks = state
+        .http
+        .get(JWKS_URL)
+        .send()
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
     if !jwks.status().is_success() {
         return Err(ApiError::Unavailable);
     }
     let jwks: Jwks = jwks.json().await.map_err(|_| ApiError::Unavailable)?;
-    let jwk = jwks.keys.into_iter().find(|key| {
-        key.kid == kid && key.kty == "RSA"
-            && key.alg.as_deref().is_none_or(|algorithm| algorithm == "RS256")
-            && key.usage.as_deref().is_none_or(|usage| usage == "sig")
-    }).ok_or(ApiError::Unauthorized)?;
-    let decoding = DecodingKey::from_rsa_components(&jwk.n, &jwk.e)
-        .map_err(|_| ApiError::Unauthorized)?;
+    let jwk = jwks
+        .keys
+        .into_iter()
+        .find(|key| {
+            key.kid == kid
+                && key.kty == "RSA"
+                && key
+                    .alg
+                    .as_deref()
+                    .is_none_or(|algorithm| algorithm == "RS256")
+                && key.usage.as_deref().is_none_or(|usage| usage == "sig")
+        })
+        .ok_or(ApiError::Unauthorized)?;
+    let decoding =
+        DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(|_| ApiError::Unauthorized)?;
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_issuer(&["https://accounts.google.com", "accounts.google.com"]);
     validation.set_audience(&[google.client_id.as_str()]);
     validation.required_spec_claims.insert("sub".to_string());
-    let token = decode::<GoogleClaims>(raw, &decoding, &validation)
-        .map_err(|_| ApiError::Unauthorized)?;
+    let token =
+        decode::<GoogleClaims>(raw, &decoding, &validation).map_err(|_| ApiError::Unauthorized)?;
     let claims = token.claims;
-    if claims.nonce != expected_nonce || !claims.email_verified
-        || claims.sub.is_empty() || claims.sub.len() > 256
-        || claims.exp == 0 || claims.iss.is_empty() || claims.aud.is_empty()
+    if claims.nonce != expected_nonce
+        || !claims.email_verified
+        || claims.sub.is_empty()
+        || claims.sub.len() > 256
+        || claims.exp == 0
+        || claims.iss.is_empty()
+        || claims.aud.is_empty()
     {
         return Err(ApiError::Unauthorized);
     }
@@ -186,30 +233,48 @@ async fn validate_google_id_token(
 
 async fn persist_google_identity(state: &AppState, claims: GoogleClaims) -> Result<Uuid, ApiError> {
     let existing: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT user_id FROM oauth_accounts WHERE provider = 'google' AND provider_sub = $1"
+        "SELECT user_id FROM oauth_accounts WHERE provider = 'google' AND provider_sub = $1",
     )
     .bind(&claims.sub)
-    .fetch_optional(&state.db).await.map_err(database_error)?;
-    if let Some((user_id,)) = existing { return Ok(user_id); }
+    .fetch_optional(&state.db)
+    .await
+    .map_err(database_error)?;
+    if let Some((user_id,)) = existing {
+        return Ok(user_id);
+    }
 
     let email = security::valid_email(&claims.email).ok_or(ApiError::Unauthorized)?;
     // Never link an external identity to a pre-existing local account based on email alone.
     let collision: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
-        .bind(&email).fetch_optional(&state.db).await.map_err(database_error)?;
-    if collision.is_some() { return Err(ApiError::Forbidden); }
+        .bind(&email)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(database_error)?;
+    if collision.is_some() {
+        return Err(ApiError::Forbidden);
+    }
 
     let unknown_password = opaque();
     let password_hash = security::hash_password(unknown_password).await?;
     let user_id = Uuid::new_v4();
     let mut tx = state.db.begin().await.map_err(database_error)?;
     sqlx::query("INSERT INTO users (id,email,password_hash) VALUES ($1,$2,$3)")
-        .bind(user_id).bind(&email).bind(password_hash)
-        .execute(&mut *tx).await.map_err(database_error)?;
+        .bind(user_id)
+        .bind(&email)
+        .bind(password_hash)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
     sqlx::query(
         "INSERT INTO oauth_accounts (provider, provider_sub, user_id, email_at_link)
-         VALUES ('google',$1,$2,$3)"
-    ).bind(&claims.sub).bind(user_id).bind(&email)
-        .execute(&mut *tx).await.map_err(database_error)?;
+         VALUES ('google',$1,$2,$3)",
+    )
+    .bind(&claims.sub)
+    .bind(user_id)
+    .bind(&email)
+    .execute(&mut *tx)
+    .await
+    .map_err(database_error)?;
     tx.commit().await.map_err(database_error)?;
     Ok(user_id)
 }
@@ -221,19 +286,35 @@ pub async fn callback(
     Query(query): Query<CallbackQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let google: Arc<GoogleOAuth> = state.google.clone().ok_or(ApiError::Unavailable)?;
-    limiter::check(&state.redis, "google-callback", &addr.ip().to_string(), 30, 60).await?;
+    limiter::check(
+        &state.redis,
+        "google-callback",
+        &addr.ip().to_string(),
+        30,
+        60,
+    )
+    .await?;
     if query.state.len() > 256 || query.code.len() > 4096 || query.code.is_empty() {
         return Err(ApiError::Invalid("invalid_oauth_callback"));
     }
     validate_callback_cookie(&state, &headers, &query.state)?;
     let key = format!("authcore:oidc:{}", security::hash_refresh(&query.state));
-    let mut conn = state.redis.get_multiplexed_async_connection().await.map_err(|_| ApiError::Unavailable)?;
+    let mut conn = state
+        .redis
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
     let saved: Option<String> = redis::cmd("GETDEL")
-        .arg(key).query_async(&mut conn).await.map_err(|_| ApiError::Unavailable)?;
+        .arg(key)
+        .query_async(&mut conn)
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
     let saved = saved.ok_or(ApiError::Unauthorized)?;
     let context: StateData = serde_json::from_str(&saved).map_err(|_| ApiError::Unauthorized)?;
 
-    let response = state.http.post(TOKEN_URL)
+    let response = state
+        .http
+        .post(TOKEN_URL)
         .form(&[
             ("code", query.code.as_str()),
             ("client_id", google.client_id.as_str()),
@@ -242,36 +323,55 @@ pub async fn callback(
             ("code_verifier", context.verifier.as_str()),
             ("grant_type", "authorization_code"),
         ])
-        .send().await.map_err(|_| ApiError::Unavailable)?;
+        .send()
+        .await
+        .map_err(|_| ApiError::Unavailable)?;
     if !response.status().is_success() {
         return Err(ApiError::Unauthorized);
     }
     let tokens: GoogleTokenResponse = response.json().await.map_err(|_| ApiError::Unauthorized)?;
-    let claims = validate_google_id_token(&state, &google, &tokens.id_token, &context.nonce).await?;
+    let claims =
+        validate_google_id_token(&state, &google, &tokens.id_token, &context.nonce).await?;
     let user_id = persist_google_identity(&state, claims).await?;
 
     let session_id = Uuid::new_v4();
     let (refresh, hash) = security::generate_refresh();
     let mut tx = state.db.begin().await.map_err(database_error)?;
     sqlx::query("INSERT INTO sessions (id,user_id) VALUES ($1,$2)")
-        .bind(session_id).bind(user_id).execute(&mut *tx).await.map_err(database_error)?;
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(database_error)?;
     sqlx::query(
-        "INSERT INTO refresh_tokens (id, session_id, token_hash, expires_at) VALUES ($1,$2,$3,$4)"
-    ).bind(Uuid::new_v4()).bind(session_id).bind(hash)
-        .bind(Utc::now() + Duration::seconds(security::REFRESH_TTL_SECONDS))
-        .execute(&mut *tx).await.map_err(database_error)?;
+        "INSERT INTO refresh_tokens (id, session_id, token_hash, expires_at) VALUES ($1,$2,$3,$4)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(session_id)
+    .bind(hash)
+    .bind(Utc::now() + Duration::seconds(security::REFRESH_TTL_SECONDS))
+    .execute(&mut *tx)
+    .await
+    .map_err(database_error)?;
     tx.commit().await.map_err(database_error)?;
     let access_token = security::issue_access(&state, user_id, session_id)?;
 
     let mut outgoing = HeaderMap::new();
-    outgoing.append(header::SET_COOKIE, HeaderValue::from_str(&state.cookie(Some(&refresh)))
-        .map_err(|_| ApiError::Internal)?);
-    outgoing.append(header::SET_COOKIE, HeaderValue::from_str(&oauth_cookie(&state, None))
-        .map_err(|_| ApiError::Internal)?);
+    outgoing.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&state.cookie(Some(&refresh))).map_err(|_| ApiError::Internal)?,
+    );
+    outgoing.append(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&oauth_cookie(&state, None)).map_err(|_| ApiError::Internal)?,
+    );
     outgoing.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    Ok((outgoing, Json(json!({
-        "access_token": access_token, "token_type": "Bearer", "expires_in": 900
-    }))))
+    Ok((
+        outgoing,
+        Json(json!({
+            "access_token": access_token, "token_type": "Bearer", "expires_in": 900
+        })),
+    ))
 }
 
 #[cfg(test)]
@@ -283,6 +383,11 @@ mod tests {
         let second = opaque();
         assert!(first.len() >= 43);
         assert_ne!(first, second);
-        assert_eq!(URL_SAFE_NO_PAD.encode(Sha256::digest(first.as_bytes())).len(), 43);
+        assert_eq!(
+            URL_SAFE_NO_PAD
+                .encode(Sha256::digest(first.as_bytes()))
+                .len(),
+            43
+        );
     }
 }
