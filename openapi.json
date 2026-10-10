@@ -503,6 +503,23 @@
           }
         }
       }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "Fetch AuthCore's OpenAPI 3 contract",
+        "responses": {
+          "200": {
+            "description": "OpenAPI specification",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
