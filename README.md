@@ -10,13 +10,15 @@ A self-hosted authentication learning project exploring credential security, RSA
 ![Postgres](https://img.shields.io/badge/PostgreSQL-SQLx-336791?logo=postgresql&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-Rate%20Limiting-DC382D?logo=redis&logoColor=white)
 ![Status](https://img.shields.io/badge/Status-Experimental-orange)
+![Rust CI](https://github.com/PLNastalli/AuthCore/actions/workflows/ci.yml/badge.svg)
+![Security audit](https://github.com/PLNastalli/AuthCore/actions/workflows/security.yml/badge.svg)
 
 **[Get started](#getting-started) · [Features](#features) · [API](#api-reference) · [Security](#security-design) · [Roadmap](#roadmap)**
 
 </div>
 
 > [!WARNING]
-> **Experimental, not production-ready.** This repository contains a working *implementation draft*. At the time of this documentation update, automated build and runtime verification have not been confirmed. Do not protect real accounts with this code until tests, review, and hardening are complete.
+> **Experimental, not production-ready.** The core API is exercised in GitHub Actions with real PostgreSQL and Redis; this does **not** validate the live Google/Resend provider flows or constitute a professional security audit. Do not protect production accounts with this code yet.
 
 ## Overview
 
@@ -95,7 +97,24 @@ docker compose up --build
 The example Compose stack binds the API to `127.0.0.1:3000`; PostgreSQL and Redis are private to the Compose network. On Windows, the sample UID/GID defaults usually work with Docker Desktop bind mounts; if file access fails, configure the two `AUTHCORE_*` variables for your environment. The example credentials and signing keys are **development-only**.
 
 > [!NOTE]
-> The commands above reflect the intended setup, but are not claimed to be validated until CI and an independent local run succeed. Do not expose the development Compose stack publicly.
+> The CI builds the Docker image and exercises the API natively, but a release container still needs provider credentials for complete user onboarding. Do not expose the development Compose stack publicly.
+
+### Recommended: local development without a mail provider
+
+For a **fully testable password API without configuring Resend**, run the database services in Docker and the Rust API in debug mode, bound to loopback:
+
+```bash
+git clone https://github.com/PLNastalli/AuthCore.git
+cd AuthCore
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres redis
+cp .env.example .env
+sh scripts/dev-keys.sh
+cargo run --locked
+```
+
+The example `.env` enables a **debug-only** email-verification bypass restricted to localhost, so registration and login work for development. The bypass does not exist in release mode. Use Git Bash/WSL for the shell script on Windows.
+
+`docker compose up --build` instead uses a **release** binary. Without Resend credentials, its registration endpoint intentionally returns 503; health and readiness remain available. Do not expose either development setup publicly.
 
 ### Native Rust execution
 
@@ -170,6 +189,8 @@ curl -b cookies.txt -c cookies.txt \
 ```
 
 Access tokens are passed explicitly as `Authorization: Bearer`. Refresh tokens use a dedicated `HttpOnly` cookie. The service does **not** accept refresh tokens from request bodies or query strings.
+
+Read the [engineering review](docs/ENGINEERING_REVIEW.md) for the security findings, the reviewed dependency-audit exception and the remaining gaps.
 
 ## Security design
 

@@ -56,7 +56,9 @@ jobs:
       - name: Release build
         run: cargo build --release --locked
       - name: Validate Docker configuration
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          docker compose -f compose.yaml -f compose.dev.yaml config --quiet
       - name: Build production Docker image
         run: docker build -t authcore:ci .
       - name: HTTP smoke test
