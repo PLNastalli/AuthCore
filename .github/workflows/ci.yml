@@ -45,6 +45,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Generate test keys
         run: sh scripts/dev-keys.sh
+      - name: Regenerate and inspect exact dependency lock
+        run: |
+          cargo generate-lockfile
+          echo AUTHCORE_LOCK_V2_BEGIN
+          cat Cargo.lock
+          echo AUTHCORE_LOCK_V2_END
       - name: Apply formatting for test review
         run: cargo fmt --all
       - name: Show formatted test diff
