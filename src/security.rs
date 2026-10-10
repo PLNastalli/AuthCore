@@ -193,7 +193,7 @@ mod tests {
     }
     #[test]
     fn password_bounds() {
-        assert!(!valid_password(&String::new()));
+        assert!(!valid_password(""));
         assert!(valid_password(&generate_refresh().0));
     }
     #[test]
