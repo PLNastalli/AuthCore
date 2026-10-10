@@ -38,7 +38,7 @@ jobs:
       AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION: "true"
       BIND_ADDR: 127.0.0.1:3000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
