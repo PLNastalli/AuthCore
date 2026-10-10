@@ -1,6 +1,6 @@
 # Engineering review — AuthCore
 
-This is a living review log, not a certificate of security or performance. The code is an experimental backend, subject to external audit before real user data is entrusted to it.
+This is a living review log, not a certificate of security or performance. Current status and automated test evidence are in the README. The code is an experimental backend, subject to external audit before real user data is entrusted to it.
 
 ## Rules followed
 

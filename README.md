@@ -41,16 +41,17 @@ The initial source implementation includes registration, password login, JWT acc
 | RS256 JWT access tokens (15-minute lifetime) | **Tested via login and protected endpoints**; external review pending |
 | 30-day opaque refresh tokens (SHA-256 hashes in DB) | **Integration-tested** |
 | Transactional refresh rotation and replay-triggered revocation | **Integration and concurrent-race tests passed** |
-| PostgreSQL session inspection and revocation | Implemented; broader dedicated endpoint coverage pending |
+| PostgreSQL session inspection and revocation | Implemented; session-list, targeted and global revocation integration tests added |
 | Change password and invalidate sessions | **Integration-tested**, including competing updates |
 | Redis Lua rate limiting and fail-closed on Redis errors | Implemented; Redis used in CI; outage tests pending |
-| OpenAPI 3 spec at `/openapi.json` | Published; comprehensive schema validation pending |
+| OpenAPI 3 spec at `/openapi.json` | Published; router/contract consistency test added |
 | Docker Compose and GitHub Actions | **CI verified**, including release build and container build |
 | Email verification with single-use tokens and resend | **Database flow tested**; live Resend delivery unverified |
 | Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented; external Google provider tests pending |
 | One-time password reset, optional Resend delivery | **Token lifecycle tested**; live email delivery pending |
-| RSA signing-key rotation with trusted configured `kid` values | Implemented in source; deployment testing pending |
-| Independent security audit and load benchmarks | Not performed |
+| RSA signing-key rotation with trusted configured `kid` values | Implemented; signed-token rollover and retirement tests added |
+| Local performance smoke benchmark | Reproducible `/ready` workload; not a full auth benchmark |
+| Independent security audit and production load tests | Not performed |
 
 ## Architecture
 
@@ -233,16 +234,29 @@ cargo test --all-targets
 
 GitHub Actions also has a PostgreSQL/Redis-backed HTTP smoke test for registration, login, `/me` and refresh rotation. See [the CI workflow](.github/workflows/ci.yml). Check the actual [Actions results](https://github.com/PLNastalli/AuthCore/actions); do not assume they are green.
 
-## Roadmap
+## Roadmap and validation status
 
-- [x] Implement initial HTTP routes, migrations, JWT and session code
-- [x] Add Redis rate-limit code, containers, OpenAPI and CI configuration
-- [ ] Confirm clean compilation and passing CI
-- [ ] Add realistic end-to-end/concurrent-refresh integration tests
-- [x] Implement password reset token lifecycle and optional Resend delivery adapter\n- [ ] Verify actual email delivery and implement verified-email onboarding
-- [x] Add Google OpenID Connect code with Authorization Code + PKCE, JWKS and state binding\n- [ ] Verify full Google login with test OAuth credentials
-- [x] Add configuration-driven RSA key rotation with a bounded trusted verification key set\n- [ ] Add protected metrics and complete deployment hardening (test in staging)
-- [ ] Conduct external security review and publish reproducible load benchmarks
+Core functionality implemented and covered by automated checks:
+
+- [x] Email/password registration, Argon2id, verified-email gate, JWT access tokens and revocable sessions
+- [x] Transactional single-use refresh tokens, replay detection and concurrency regression tests
+- [x] Google OAuth 2.0 / OIDC Authorization Code + PKCE with state, nonce and JWKS validation
+- [x] Single-use password recovery and Redis rate limiting
+- [x] Docker, pinned Rust dependencies, CI/CD, OpenAPI and contract tests
+- [x] Configuration-driven RSA key rotation with tests for signing, legacy verification and retirement
+- [x] Reproducible local readiness-path benchmark with p50/p95/p99 JSON artifact ([methodology](docs/BENCHMARKS.md))
+
+External validation and hardening still required:
+
+- [ ] Complete live end-to-end Google OAuth test with configured test credentials
+- [ ] Complete live Resend verification and recovery email tests with a verified sender domain
+- [ ] Independent code and penetration review, staging deployment, incident-response drill
+- [ ] Auth-endpoint load testing with representative traffic and resource measurements
+- [ ] Optional secured metrics exporter, scheduled cleanup/retention and managed signing keys
+
+The checks above are intentionally not all marked complete. **Do not treat this
+project as a production identity provider until the remaining security and
+operational validation is performed.**
 
 ## Inspiration
 
