@@ -84,10 +84,13 @@ Requirements: **Docker + Docker Compose + OpenSSL** for the container path, or a
 git clone https://github.com/PLNastalli/AuthCore.git
 cd AuthCore
 sh scripts/dev-keys.sh
+# On Linux/macOS, make the Docker API process match the signing-key owner:
+export AUTHCORE_UID="$(id -u)"
+export AUTHCORE_GID="$(id -g)"
 docker compose up --build
 ```
 
-The example Compose stack binds the API to `127.0.0.1:3000`; PostgreSQL and Redis are private to the Compose network. The example credentials and signing keys are **development-only**.
+The example Compose stack binds the API to `127.0.0.1:3000`; PostgreSQL and Redis are private to the Compose network. On Windows, the sample UID/GID defaults usually work with Docker Desktop bind mounts; if file access fails, configure the two `AUTHCORE_*` variables for your environment. The example credentials and signing keys are **development-only**.
 
 > [!NOTE]
 > The commands above reflect the intended setup, but are not claimed to be validated until CI and an independent local run succeed. Do not expose the development Compose stack publicly.
