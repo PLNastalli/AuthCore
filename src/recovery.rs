@@ -80,7 +80,7 @@ pub async fn forgot_password(
     );
     let result = state
         .http
-        .post(&mailer.api_endpoint)
+        .post(mailer.api_endpoint.as_str())
         .bearer_auth(&mailer.api_key)
         .json(&json!({
             "from": mailer.from_email,
