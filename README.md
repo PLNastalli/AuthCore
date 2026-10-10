@@ -215,7 +215,7 @@ Documentation style and engineering direction were informed by [Ory Kratos](http
 
 ## License
 
-Not selected yet. A license will be added after an explicit choice. Public GitHub visibility is not a software license.
+Distributed under the [MIT License](LICENSE). See the license file for terms.
 
 ---
 
