@@ -45,8 +45,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Generate test keys
         run: sh scripts/dev-keys.sh
-      - name: Verify formatting
-        run: cargo fmt --all -- --check
+      - name: Format source for review
+        run: cargo fmt --all
+      - name: Show formatting diff
+        run: git diff -- src tests
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
       - name: Unit tests

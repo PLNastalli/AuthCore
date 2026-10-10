@@ -88,7 +88,9 @@ pub async fn resend(
     ).bind(&email).fetch_optional(&state.db).await.map_err(database_error)?;
     if let Some((user_id,)) = account {
         // Always give a generic response for valid addresses, even on mail failures.
-        let _ = send(&state, user_id, &email).await;
+        if let Err(error) = send(&state, user_id, &email).await {
+            tracing::warn!(?error, "verification resend failed");
+        }
     }
     Ok(StatusCode::ACCEPTED)
 }
