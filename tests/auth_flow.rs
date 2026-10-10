@@ -109,3 +109,54 @@ async fn rejects_mismatched_origin_before_refresh() {
         &[("cookie", "authcore_refresh=invalid"), ("origin", "https://attacker.example")]).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn password_reset_is_one_time_and_revokes_sessions() {
+    if std::env::var("DATABASE_URL").is_err() {
+        return;
+    }
+    let state = AppState::from_env().await.expect("database and Redis required");
+    let api = app(state.clone());
+    let email = format!("recovery-test-{}@example.com", Uuid::new_v4());
+    let old_password = "old-password-strong-2026";
+    let new_password = "new-password-strong-2026";
+    let registered = call(&api, "POST", "/api/v1/auth/register",
+        Some(json!({ "email": email, "password": old_password })), &[]).await;
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let user_id: Uuid = json_body(registered).await["id"].as_str().unwrap().parse().unwrap();
+
+    let logged_in = call(&api, "POST", "/api/v1/auth/login",
+        Some(json!({ "email": email, "password": old_password })), &[]).await;
+    assert_eq!(logged_in.status(), StatusCode::OK);
+    let token = json_body(logged_in).await["access_token"].as_str().unwrap().to_string();
+    let bearer = format!("Bearer {token}");
+
+    // Normally the raw token is delivered by the external email provider.
+    // Seed it directly here to validate the database and HTTP behavior offline.
+    let (raw_reset, digest) = authcore::security::generate_refresh();
+    sqlx::query(
+        "INSERT INTO password_reset_tokens (id,user_id,token_hash,expires_at)
+         VALUES ($1,$2,$3,NOW()+INTERVAL '15 minutes')"
+    )
+    .bind(Uuid::new_v4())
+    .bind(user_id)
+    .bind(digest)
+    .execute(&state.db).await.unwrap();
+
+    let response = call(&api, "POST", "/api/v1/auth/reset-password",
+        Some(json!({ "token": raw_reset, "new_password": new_password })), &[]).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let replay = call(&api, "POST", "/api/v1/auth/reset-password",
+        Some(json!({ "token": raw_reset, "new_password": new_password })), &[]).await;
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+
+    let revoked = call(&api, "GET", "/api/v1/auth/me", None,
+        &[("authorization", &bearer)]).await;
+    assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    let old_login = call(&api, "POST", "/api/v1/auth/login",
+        Some(json!({ "email": email, "password": old_password })), &[]).await;
+    assert_eq!(old_login.status(), StatusCode::UNAUTHORIZED);
+    let new_login = call(&api, "POST", "/api/v1/auth/login",
+        Some(json!({ "email": email, "password": new_password })), &[]).await;
+    assert_eq!(new_login.status(), StatusCode::OK);
+}
