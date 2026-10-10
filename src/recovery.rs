@@ -80,7 +80,7 @@ pub async fn forgot_password(
     );
     let result = state
         .http
-        .post("https://api.resend.com/emails")
+        .post(&mailer.api_endpoint)
         .bearer_auth(&mailer.api_key)
         .json(&json!({
             "from": mailer.from_email,

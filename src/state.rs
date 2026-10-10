@@ -13,6 +13,8 @@ pub struct JwtKeys {
 pub struct RecoveryMailer {
     pub api_key: String,
     pub from_email: String,
+    /// Production always uses Resend; injectable in isolated integration tests.
+    pub api_endpoint: String,
 }
 
 pub struct GoogleOAuth {
@@ -99,6 +101,7 @@ impl AppState {
             (Some(api_key), Some(from_email)) => Some(Arc::new(RecoveryMailer {
                 api_key,
                 from_email,
+                api_endpoint: "https://api.resend.com/emails".into(),
             })),
             _ => return Err("configure RESEND_API_KEY and RESET_FROM_EMAIL together".into()),
         };
