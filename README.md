@@ -197,7 +197,7 @@ curl -b cookies.txt -c cookies.txt \
 
 Access tokens are passed explicitly as `Authorization: Bearer`. Refresh tokens use a dedicated `HttpOnly` cookie. The service does **not** accept refresh tokens from request bodies or query strings.
 
-Read the [engineering review](docs/ENGINEERING_REVIEW.md) for the security findings, the reviewed dependency-audit exception and the remaining gaps.
+Read the [engineering review](docs/ENGINEERING_REVIEW.md) and [threat model](docs/THREAT_MODEL.md) for security decisions, threat boundaries and remaining risks.
 
 ## Security design
 
