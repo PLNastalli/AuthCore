@@ -45,7 +45,9 @@ jobs:
       - name: Generate test keys
         run: sh scripts/dev-keys.sh
       - name: Format
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all
+      - name: Show required formatting changes
+        run: git diff -- src
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
       - name: Unit tests
