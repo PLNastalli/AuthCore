@@ -96,6 +96,21 @@ async fn token_rotation_replay_and_revocation() {
     .await;
     assert_eq!(response.status(), StatusCode::OK);
 
+    // Flip a signature character. A modified JWT must never authenticate.
+    let (prefix, signature) = token.rsplit_once('.').unwrap();
+    let alternate = if signature.starts_with('A') { "B" } else { "A" };
+    let modified = format!("{prefix}.{alternate}{}", &signature[1..]);
+    let modified_auth = format!("Bearer {modified}");
+    let rejected = call(
+        &app,
+        "GET",
+        "/api/v1/auth/me",
+        None,
+        &[("authorization", &modified_auth)],
+    )
+    .await;
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
     let response = call(
         &app,
         "POST",
