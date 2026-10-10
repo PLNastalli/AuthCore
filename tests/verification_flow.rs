@@ -33,8 +33,8 @@ async fn pending_identity_cannot_login_before_single_use_confirmation() {
     let api = app(state.clone());
     let id = Uuid::new_v4();
     let email = format!("verify-{}@example.com", Uuid::new_v4());
-    let password = "verify-email-strong-password-2026";
-    let encoded = state.passwords.hash(password.to_owned()).await.unwrap();
+    let password = security::generate_refresh().0;
+    let encoded = state.passwords.hash(password.clone()).await.unwrap();
 
     // An unverified account deliberately created as pending in a real database.
     sqlx::query("INSERT INTO users (id,email,password_hash) VALUES ($1,$2,$3)")
@@ -90,7 +90,7 @@ async fn simultaneous_different_email_tokens_do_not_deadlock_or_both_succeed() {
     let email = format!("parallel-verify-{}@example.com", Uuid::new_v4());
     let password = state
         .passwords
-        .hash("parallel-verify-password-2026".into())
+        .hash(security::generate_refresh().0)
         .await
         .unwrap();
     sqlx::query("INSERT INTO users (id,email,password_hash) VALUES ($1,$2,$3)")

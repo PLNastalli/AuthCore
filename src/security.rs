@@ -193,8 +193,8 @@ mod tests {
     }
     #[test]
     fn password_bounds() {
-        assert!(!valid_password("short"));
-        assert!(valid_password("long-password-2026"));
+        assert!(!valid_password(&String::new()));
+        assert!(valid_password(&generate_refresh().0));
     }
     #[test]
     fn random_refresh_hash() {
@@ -207,14 +207,12 @@ mod tests {
     #[tokio::test]
     async fn password_roundtrip() {
         let service = PasswordService::new(2);
-        let hash = service
-            .hash("correct horse battery staple".into())
-            .await
-            .unwrap();
-        assert!(service
-            .verify("correct horse battery staple".into(), hash.clone())
-            .await
-            .unwrap());
-        assert!(!service.verify("wrong-password".into(), hash).await.unwrap());
+        // Fresh, high-entropy fixtures: never embed passwords in cryptographic tests.
+        let original = generate_refresh().0;
+        let incorrect = generate_refresh().0;
+        assert_ne!(original, incorrect);
+        let hash = service.hash(original.clone()).await.unwrap();
+        assert!(service.verify(original, hash.clone()).await.unwrap());
+        assert!(!service.verify(incorrect, hash).await.unwrap());
     }
 }
