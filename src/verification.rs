@@ -55,7 +55,7 @@ pub async fn send(state: &AppState, user_id: Uuid, email: &str) -> Result<(), Ap
     );
     let response = state
         .http
-        .post(&mailer.api_endpoint)
+        .post(mailer.api_endpoint.as_str())
         .bearer_auth(&mailer.api_key)
         .json(&json!({
             "from": mailer.from_email,
