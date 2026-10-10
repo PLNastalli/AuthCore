@@ -28,7 +28,7 @@ The initial source implementation includes registration, password login, JWT acc
 
 | Component | Implementation status |
 | --- | --- |
-| Local registration and password login | Implemented in source; verification pending |
+| Local registration, email verification and password login | Implemented; CI covers database flow |
 | Argon2id password hashing | Implemented in source; verification pending |
 | RS256 JWT access tokens (15-minute lifetime) | Implemented in source; verification pending |
 | 30-day opaque refresh tokens (SHA-256 hashes in DB) | Implemented in source; verification pending |
@@ -38,6 +38,7 @@ The initial source implementation includes registration, password login, JWT acc
 | Redis Lua rate limiting and fail-closed on Redis errors | Implemented in source; verification pending |
 | OpenAPI 3 spec at `/openapi.json` | Added; validation pending |
 | Docker Compose and GitHub Actions | Added; verification pending |
+| Email verification with single-use tokens and resend | Implemented; live Resend delivery unverified |
 | Google OAuth2 / OIDC + PKCE + state-cookie binding | Implemented in source; external provider testing pending |
 | One-time password reset, optional Resend delivery | Implemented in source; external delivery testing pending |
 | RSA signing-key rotation with multiple active `kid` values | Planned |
@@ -65,6 +66,7 @@ src/
   handlers.rs     # HTTP authentication endpoints and transactional session logic
   security.rs     # Argon2id, JWTs, opaque refresh tokens, validation
   limiter.rs      # Atomic rate limiting via Redis Lua\n  oauth.rs        # Google OIDC flow, PKCE and JWKS validation\n  recovery.rs     # Password reset and mail delivery adapter
+  verification.rs # Email verification
   error.rs        # Sanitized API errors
 migrations/       # PostgreSQL schema
 openapi.json      # OpenAPI document
@@ -111,9 +113,13 @@ The server runs SQLx migrations at startup. It refuses startup when PostgreSQL, 
 
 ## External identity and email configuration
 
-The core email/password authentication works without external providers.
+**Release password registration requires email delivery.** Accounts must verify their email with a one-time token before password login. Without a configured mail provider, release registration returns HTTP 503.
+
+For local integration tests, debug builds support `AUTHCORE_DEV_SKIP_EMAIL_VERIFICATION=true` only with a server bound to loopback and a localhost origin. Release binaries reject the bypass; never deploy debug binaries publicly.
 
 **Google login:** configure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` together. The callback URI must exactly match `PUBLIC_ORIGIN/api/v1/oauth/google/callback` and be registered in Google Cloud. Visit `GET /api/v1/oauth/google/start` in a browser to begin the flow. The callback returns tokens as JSON and sets the refresh cookie; it does not create a frontend. Accounts sharing an existing local email are **not linked automatically**. See [the OIDC integration guide](docs/GOOGLE_OIDC.md).
+
+**Verification:** after registration, submit `{"token":"..."}` to `POST /api/v1/auth/verify-email`. Use `POST /api/v1/auth/resend-verification` to request a fresh token.
 
 **Password recovery:** set `RESEND_API_KEY` and `RESET_FROM_EMAIL` (a verified sender domain). Without both values, the recovery request endpoint returns 503; it never puts reset tokens in API responses or logs. The email includes a one-time token to submit to `POST /api/v1/auth/reset-password`. See [the recovery guide](docs/PASSWORD_RECOVERY.md).
 
@@ -126,6 +132,8 @@ The full machine-readable contract lives in [openapi.json](openapi.json).
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `POST` | `/api/v1/auth/register` | Register a local account |
+| `POST` | `/api/v1/auth/verify-email` | Confirm email ownership with one-time token |
+| `POST` | `/api/v1/auth/resend-verification` | Request another verification token |
 | `POST` | `/api/v1/auth/login` | Obtain JWT and refresh cookie |
 | `POST` | `/api/v1/auth/refresh` | Rotate refresh cookie and issue new JWT |
 | `GET` | `/api/v1/auth/me` | Get current account |

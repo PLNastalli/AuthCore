@@ -105,6 +105,31 @@
             "maxLength": 1024
           }
         }
+      },
+      "VerifyEmail": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "ResendVerification": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          }
+        }
       }
     },
     "requestBodies": {
@@ -423,6 +448,58 @@
           },
           "403": {
             "description": "Invalid state binding"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify-email": {
+      "post": {
+        "summary": "Verify email using a single-use token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmail"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Confirmed"
+          },
+          "401": {
+            "description": "Invalid token"
+          },
+          "429": {
+            "description": "Rate limited"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/resend-verification": {
+      "post": {
+        "summary": "Request verification email without account enumeration",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerification"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "429": {
+            "description": "Rate limited"
+          },
+          "503": {
+            "description": "Mail provider unavailable"
           }
         }
       }
