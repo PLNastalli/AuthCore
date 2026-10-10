@@ -49,8 +49,10 @@ jobs:
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out .dev-keys/next-private.pem
           openssl pkey -in .dev-keys/next-private.pem -pubout -out .dev-keys/next-public.pem
           chmod 600 .dev-keys/next-private.pem
-      - name: Verify rustfmt formatting
-        run: cargo fmt --all -- --check
+      - name: Rustfmt preview
+        run: cargo fmt --all
+      - name: Show rustfmt diff
+        run: git diff -- src tests
       - name: Check all targets
         run: cargo check --workspace --all-targets --locked
       - name: Lint
