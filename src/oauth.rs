@@ -57,7 +57,7 @@ struct Jwk {
     usage: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct GoogleClaims {
     sub: String,
     email: String,
@@ -211,12 +211,21 @@ async fn validate_google_id_token(
         .ok_or(ApiError::Unauthorized)?;
     let decoding =
         DecodingKey::from_rsa_components(&jwk.n, &jwk.e).map_err(|_| ApiError::Unauthorized)?;
+    verify_google_signed_claims(raw, &decoding, &google.client_id, expected_nonce)
+}
+
+fn verify_google_signed_claims(
+    raw: &str,
+    key: &DecodingKey,
+    client_id: &str,
+    expected_nonce: &str,
+) -> Result<GoogleClaims, ApiError> {
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_issuer(&["https://accounts.google.com", "accounts.google.com"]);
-    validation.set_audience(&[google.client_id.as_str()]);
+    validation.set_audience(&[client_id]);
     validation.required_spec_claims.insert("sub".to_string());
-    let token =
-        decode::<GoogleClaims>(raw, &decoding, &validation).map_err(|_| ApiError::Unauthorized)?;
+    let token = decode::<GoogleClaims>(raw, key, &validation)
+        .map_err(|_| ApiError::Unauthorized)?;
     let claims = token.claims;
     if claims.nonce != expected_nonce
         || !claims.email_verified
@@ -379,6 +388,54 @@ pub async fn callback(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn validates_provider_signature_and_rejects_wrong_claims() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        use std::fs;
+
+        // CI generates these ephemeral keys; no fixtures or private keys are committed.
+        let Ok(private) = fs::read(".dev-keys/jwt-private.pem") else { return };
+        let public = fs::read(".dev-keys/jwt-public.pem").unwrap();
+        let signing = EncodingKey::from_rsa_pem(&private).unwrap();
+        let verifying = DecodingKey::from_rsa_pem(&public).unwrap();
+        let claims = GoogleClaims {
+            sub: "provider-test-subject".into(),
+            email: "test@example.com".into(),
+            email_verified: true,
+            nonce: "expected-nonce".into(),
+            exp: (Utc::now().timestamp() + 120) as usize,
+            iss: "https://accounts.google.com".into(),
+            aud: "test-google-client".into(),
+        };
+        let make_token = |claims: &GoogleClaims| {
+            encode(&Header::new(Algorithm::RS256), claims, &signing).unwrap()
+        };
+        assert!(verify_google_signed_claims(
+            &make_token(&claims), &verifying, "test-google-client", "expected-nonce"
+        ).is_ok());
+        assert!(verify_google_signed_claims(
+            &make_token(&claims), &verifying, "wrong-client", "expected-nonce"
+        ).is_err());
+        assert!(verify_google_signed_claims(
+            &make_token(&claims), &verifying, "test-google-client", "wrong-nonce"
+        ).is_err());
+        let mut invalid = claims.clone();
+        invalid.email_verified = false;
+        assert!(verify_google_signed_claims(
+            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
+        ).is_err());
+        invalid = claims.clone();
+        invalid.iss = "https://attacker.invalid".into();
+        assert!(verify_google_signed_claims(
+            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
+        ).is_err());
+        invalid = claims.clone();
+        invalid.exp = (Utc::now().timestamp() - 600) as usize;
+        assert!(verify_google_signed_claims(
+            &make_token(&invalid), &verifying, "test-google-client", "expected-nonce"
+        ).is_err());
+    }
+
     #[test]
     fn pkce_verifier_generates_unique_sized_tokens() {
         let first = opaque();
