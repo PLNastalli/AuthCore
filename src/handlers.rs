@@ -156,7 +156,7 @@ pub async fn register(
     if !state.dev_skip_email_verification && state.recovery_mailer.is_none() {
         return Err(ApiError::Unavailable);
     }
-    let hash = security::hash_password(body.password).await?;
+    let hash = state.passwords.hash(body.password).await?;
     let user_id = Uuid::new_v4();
     let result = sqlx::query(
         "INSERT INTO users (id, email, password_hash, email_verified_at)
@@ -205,7 +205,7 @@ pub async fn login(
     // A stable dummy hash mitigates immediate user-enumeration timing differences.
     let selected_hash = user.as_ref().map(|account| account.password_hash.clone())
         .unwrap_or_else(|| state.dummy_password_hash.as_ref().clone());
-    let matches = security::check_password(body.password, selected_hash).await?;
+    let matches = state.passwords.verify(body.password, selected_hash).await?;
     let user = user.ok_or(ApiError::Unauthorized)?;
     if !matches || user.email_verified_at.is_none() {
         return Err(ApiError::Unauthorized);
@@ -406,10 +406,10 @@ pub async fn change_password(
             .fetch_one(&state.db)
             .await
             .map_err(database_error)?;
-    if !security::check_password(body.current_password, user.password_hash).await? {
+    if !state.passwords.verify(body.current_password, user.password_hash).await? {
         return Err(ApiError::Unauthorized);
     }
-    let next_hash = security::hash_password(body.new_password).await?;
+    let next_hash = state.passwords.hash(body.new_password).await?;
     let mut tx = state.db.begin().await.map_err(database_error)?;
     sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
         .bind(next_hash)

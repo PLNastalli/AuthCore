@@ -13,6 +13,8 @@ use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use std::{sync::Arc, time::Duration};
+use tokio::sync::Semaphore;
 
 const ACCESS_TTL_SECONDS: i64 = 900;
 pub const REFRESH_TTL_SECONDS: i64 = 60 * 60 * 24 * 30;
@@ -71,27 +73,43 @@ pub fn verify_access(state: &AppState, headers: &HeaderMap) -> Result<(Uuid, Uui
     Ok((user, session))
 }
 
-pub async fn hash_password(password: String) -> Result<String, ApiError> {
-    tokio::task::spawn_blocking(move || {
-        let salt = SaltString::generate(&mut SaltOsRng);
-        Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .map(|hash| hash.to_string())
-            .map_err(|_| ApiError::Internal)
-    })
-    .await
-    .map_err(|_| ApiError::Internal)?
+/// Bounds memory-hard Argon2 work and keeps blocking CPU work off Tokio workers.
+/// A permit is held inside the blocking task, including when HTTP clients cancel.
+#[derive(Clone)]
+pub struct PasswordService {
+    permits: Arc<Semaphore>,
 }
 
-pub async fn check_password(password: String, encoded: String) -> Result<bool, ApiError> {
-    tokio::task::spawn_blocking(move || {
-        let parsed = PasswordHash::new(&encoded).map_err(|_| ApiError::Internal)?;
-        Ok(Argon2::default()
-            .verify_password(password.as_bytes(), &parsed)
-            .is_ok())
-    })
-    .await
-    .map_err(|_| ApiError::Internal)?
+impl PasswordService {
+    pub fn new(max_concurrent: usize) -> Self {
+        Self { permits: Arc::new(Semaphore::new(max_concurrent.max(1))) }
+    }
+
+    async fn slot(&self) -> Result<tokio::sync::OwnedSemaphorePermit, ApiError> {
+        tokio::time::timeout(Duration::from_secs(3), self.permits.clone().acquire_owned())
+            .await.map_err(|_| ApiError::Unavailable)?
+            .map_err(|_| ApiError::Unavailable)
+    }
+
+    pub async fn hash(&self, password: String) -> Result<String, ApiError> {
+        let permit = self.slot().await?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let salt = SaltString::generate(&mut SaltOsRng);
+            Argon2::default().hash_password(password.as_bytes(), &salt)
+                .map(|hash| hash.to_string())
+                .map_err(|_| ApiError::Internal)
+        }).await.map_err(|_| ApiError::Internal)?
+    }
+
+    pub async fn verify(&self, password: String, encoded: String) -> Result<bool, ApiError> {
+        let permit = self.slot().await?;
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let parsed = PasswordHash::new(&encoded).map_err(|_| ApiError::Internal)?;
+            Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
+        }).await.map_err(|_| ApiError::Internal)?
+    }
 }
 
 pub fn generate_refresh() -> (String, String) {
@@ -178,14 +196,15 @@ mod tests {
     }
     #[tokio::test]
     async fn password_roundtrip() {
-        let hash = hash_password("correct horse battery staple".into())
+        let service = PasswordService::new(2);
+        let hash = service.hash("correct horse battery staple".into())
             .await
             .unwrap();
         assert!(
-            check_password("correct horse battery staple".into(), hash.clone())
+            service.verify("correct horse battery staple".into(), hash.clone())
                 .await
                 .unwrap()
         );
-        assert!(!check_password("wrong-password".into(), hash).await.unwrap());
+        assert!(!service.verify("wrong-password".into(), hash).await.unwrap());
     }
 }

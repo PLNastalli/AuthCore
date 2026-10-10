@@ -137,7 +137,7 @@ pub async fn reset_password(
             .await
             .map_err(database_error)?;
     let (user_id,) = user.ok_or(ApiError::Unauthorized)?;
-    let next_hash = security::hash_password(body.new_password).await?;
+    let next_hash = state.passwords.hash(body.new_password).await?;
     let mut tx = state.db.begin().await.map_err(database_error)?;
 
     // Acquire the per-user lock *before* checking token state. This serializes

@@ -33,6 +33,7 @@ pub struct AppState {
     /// Local debug builds can run self-contained authentication tests without sending email.
     pub dev_skip_email_verification: bool,
     pub dummy_password_hash: Arc<String>,
+    pub passwords: crate::security::PasswordService,
 }
 
 impl AppState {
@@ -127,8 +128,9 @@ impl AppState {
         // No silent fail-open if the rate limiter is unavailable.
         let mut conn = redis.get_multiplexed_async_connection().await?;
         let _: String = redis::cmd("PING").query_async(&mut conn).await?;
+        let passwords = crate::security::PasswordService::new(4);
         let dummy_password_hash = Arc::new(
-            crate::security::hash_password(crate::security::generate_refresh().0).await
+            passwords.hash(crate::security::generate_refresh().0).await
                 .map_err(|_| "failed to initialize dummy Argon2 hash")?
         );
         Ok(Self {
@@ -147,6 +149,7 @@ impl AppState {
             recovery_mailer,
             dev_skip_email_verification,
             dummy_password_hash,
+            passwords,
         })
     }
 

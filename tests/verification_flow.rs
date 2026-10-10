@@ -21,7 +21,7 @@ async fn pending_identity_cannot_login_before_single_use_confirmation() {
     let id = Uuid::new_v4();
     let email = format!("verify-{}@example.com",Uuid::new_v4());
     let password = "verify-email-strong-password-2026";
-    let encoded = security::hash_password(password.to_owned()).await.unwrap();
+    let encoded = state.passwords.hash(password.to_owned()).await.unwrap();
 
     // An unverified account deliberately created as pending in a real database.
     sqlx::query("INSERT INTO users (id,email,password_hash) VALUES ($1,$2,$3)")
