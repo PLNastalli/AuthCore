@@ -101,7 +101,7 @@ jobs:
             --requests 100 --concurrency 4 --output benchmark-results.json
       - name: Upload performance smoke results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: authcore-readiness-benchmark
           path: benchmark-results.json
